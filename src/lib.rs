@@ -29,6 +29,7 @@ pub mod abi;
 pub mod client;
 pub mod contract;
 pub mod encrypted;
+pub mod encrypted_wire;
 pub mod error;
 pub mod signer;
 pub mod types;

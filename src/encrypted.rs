@@ -37,11 +37,11 @@
 //! properties the server-side `pyde_sendEncryptedTransaction` path
 //! cannot achieve.
 
+use crate::encrypted_wire::{encrypt_transaction, EncryptedTx};
 use crate::error::{Result, SdkError};
 use pyde_account::address::Address;
 use pyde_crypto::falcon::{falcon_sign, FalconSecretKey};
 use pyde_crypto::threshold::ThresholdPublicKey;
-use pyde_mempool::encrypted::{encrypt_transaction, EncryptedTx};
 use pyde_tx::types::AccessEntry;
 
 /// Build a client-signed `EncryptedTx` ready for submission via
@@ -113,9 +113,9 @@ pub fn parse_threshold_public_key(hex_str: &str) -> Result<ThresholdPublicKey> {
         .ok_or_else(|| SdkError::Other("invalid ThresholdPublicKey bytes".into()))
 }
 
-/// Re-export so downstream callers don't need to pull in
-/// `pyde-mempool` directly just to decode a returned tx.
-pub use pyde_mempool::encrypted::EncryptedTx as RawEncryptedTx;
+/// Re-export so downstream callers can decode wire bytes without
+/// reaching into the private wire module.
+pub use crate::encrypted_wire::EncryptedTx as RawEncryptedTx;
 
 /// Round-trip decode: takes the wire bytes produced by
 /// `build_raw_encrypted_tx` and returns the parsed struct. Useful

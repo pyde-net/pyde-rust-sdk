@@ -1,20 +1,15 @@
 [package]
 name = "pyde-rust-sdk"
-license.workspace = true
-version.workspace = true
+version = "0.1.0"
+license = "Apache-2.0"
 edition = "2021"
 description = "Rust SDK for interacting with the Pyde blockchain"
 
 [dependencies]
-# Workspace crates
-pyde-crypto = { path = "../crypto" }
-pyde-tx = { path = "../tx" }
-pyde-account = { path = "../account" }
-# Pulled in for the client-side `EncryptedTx` builder (audit 227
-# step 3/4). Mempool only depends on crypto / account / tx — the
-# same set the SDK already has, so this is zero new transitive
-# surface.
-pyde-mempool = { path = "../mempool" }
+# Sibling-repo crates (pyde-net/core)
+pyde-crypto = { path = "../core/crates/crypto" }
+pyde-tx = { path = "../core/crates/tx" }
+pyde-account = { path = "../core/crates/account" }
 
 # Async HTTP + WebSocket
 reqwest = { version = "0.12", features = ["json"] }
@@ -31,14 +26,8 @@ ethnum = "1.5.2"
 # Encryption
 aes-gcm = "0.10"
 rand = "0.8"
-# Memory-hard KDF for keystore passphrases (audit 306).
 argon2 = "0.5"
-# Audit 358: Zeroize wrapper for the AES key derived from
-# the SDK wallet password.
 zeroize = { version = "1", features = ["alloc"] }
 
 # Error handling
 thiserror = "2"
-
-[lints]
-workspace = true
