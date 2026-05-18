@@ -6,10 +6,10 @@ edition = "2021"
 description = "Rust SDK for interacting with the Pyde blockchain"
 
 [dependencies]
-# Sibling-repo crates (pyde-net/core)
-pyde-crypto = { path = "../core/crates/crypto" }
-pyde-tx = { path = "../core/crates/tx" }
-pyde-account = { path = "../core/crates/account" }
+# Sibling-repo crates (pyde-net/engine)
+pyde-crypto = { path = "../engine/crates/crypto" }
+pyde-tx = { path = "../engine/crates/tx" }
+pyde-account = { path = "../engine/crates/account" }
 
 # Async HTTP + WebSocket
 reqwest = { version = "0.12", features = ["json"] }
