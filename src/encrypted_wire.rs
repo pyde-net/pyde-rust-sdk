@@ -5,9 +5,9 @@
 //! to, value, calldata
 //! Encryption: threshold_encrypt(committee_pk, (to || value || calldata))
 //! → ThresholdCiphertext (Kyber encaps + symmetric encryption + MAC)
-//! Originally lived in the `pyde-mempool` crate; inlined here so the
-//! SDK can build encrypted transactions without pulling in the
-//! consensus/mempool side.
+//! Inlined here so the SDK can build encrypted transactions without
+//! pulling in any consensus or mempool dependency — wallets only need
+//! the wire shape, never the node-side internals that consume it.
 
 use pyde_account::address::Address;
 use pyde_crypto::poseidon2::poseidon2_hash;
