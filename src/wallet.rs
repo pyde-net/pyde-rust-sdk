@@ -244,7 +244,7 @@ impl Wallet {
             data: self.public_key.as_bytes().to_vec(),
             gas_limit: 0,
             nonce,
-            signature: vec![], // unsigned by design — see 
+            signature: vec![], // unsigned by design — see
             fee_payer: FeePayer::Sender,
             access_list: vec![],
             deadline: None,
