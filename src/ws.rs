@@ -9,21 +9,17 @@ type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// WebSocket JSON-RPC provider with subscription support.
-///
 /// ```rust,ignore
 /// let ws = WsProvider::connect("ws://127.0.0.1:8546").await?;
-///
 /// // Subscribe to new blocks
 /// let mut blocks = ws.subscribe_new_heads().await?;
 /// tokio::spawn(async move {
-///     while let Ok(header) = blocks.recv().await {
-///         println!("New block: {}", header.slot);
-///     }
+/// while let Ok(header) = blocks.recv().await {
+/// println!("New block: {}", header.slot);
+/// }
 /// });
-///
 /// // Standard queries also work
 /// let balance = ws.get_balance(&addr).await?;
-///
 /// ws.close().await;
 /// ```
 pub struct WsProvider {

@@ -1,37 +1,31 @@
 //! Client-side helpers for the MEV-protected encrypted-tx flow.
-//!
 //! Lets a wallet construct a fully client-encrypted, client-signed
 //! `EncryptedTx` without giving an RPC node access to the plaintext.
-//!
 //! ```ignore
 //! use pyde_rust_sdk::{Provider, Wallet};
 //! use pyde_rust_sdk::encrypted::build_raw_encrypted_tx;
-//!
 //! # async fn demo(provider: &Provider, wallet: &Wallet) -> pyde_rust_sdk::Result<()> {
 //! // 1. Fetch the committee's threshold pubkey.
 //! let tpk = provider.get_threshold_public_key().await?;
-//!
 //! // 2. Build + sign the encrypted tx locally.
 //! let bytes = build_raw_encrypted_tx(
-//!     &tpk,
-//!     wallet.secret_key(),
-//!     *wallet.address(),
-//!     /* nonce */ 0,
-//!     /* gas_limit */ 100_000,
-//!     /* access_list */ vec![],
-//!     /* deadline */ None,
-//!     /* chain_id */ 31337,
-//!     &[0xBBu8; 32],
-//!     /* value */ 1_000,
-//!     /* calldata */ &[],
+//! &tpk,
+//! wallet.secret_key(),
+//! *wallet.address(),
+//! /* nonce */ 0,
+//! /* gas_limit */ 100_000,
+//! /* access_list */ vec![],
+//! /* deadline */ None,
+//! /* chain_id */ 31337,
+//! &[0xBBu8; 32],
+//! /* value */ 1_000,
+//! /* calldata */ &[],
 //! )?;
-//!
 //! // 3. Submit via the canonical RPC.
 //! let tx_hash = provider.send_raw_encrypted_transaction(&bytes).await?;
 //! # Ok(())
 //! # }
 //! ```
-//!
 //! The node never sees the plaintext `(to, value, calldata)` and the
 //! FALCON signature binds to a hash the client actually knows — two
 //! properties the server-side `pyde_sendEncryptedTransaction` path
@@ -46,19 +40,16 @@ use pyde_tx::types::AccessEntry;
 
 /// Build a client-signed `EncryptedTx` ready for submission via
 /// `pyde_sendRawEncryptedTransaction`.
-///
 /// Encryption order matters: the FALCON signature must be over
 /// `EncryptedTx::hash()`, which includes the ciphertext. So we:
-///
-///   1. Encrypt `(to, value, calldata)` with the committee's
-///      threshold pubkey, producing the inner ciphertext.
-///   2. Assemble the outer `EncryptedTx` with an empty signature
-///      field.
-///   3. Compute `hash()`.
-///   4. FALCON-sign the hash.
-///   5. Write the signature back into the EncryptedTx.
-///   6. Serialize via `to_bytes`.
-///
+/// 1. Encrypt `(to, value, calldata)` with the committee's
+/// threshold pubkey, producing the inner ciphertext.
+/// 2. Assemble the outer `EncryptedTx` with an empty signature
+/// field.
+/// 3. Compute `hash()`.
+/// 4. FALCON-sign the hash.
+/// 5. Write the signature back into the EncryptedTx.
+/// 6. Serialize via `to_bytes`.
 /// The returned bytes are what `pyde_sendRawEncryptedTransaction`
 /// expects (after hex encoding).
 #[allow(clippy::too_many_arguments)]

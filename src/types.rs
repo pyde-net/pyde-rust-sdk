@@ -263,10 +263,9 @@ pub fn data_length(hex: &str) -> usize {
 pub const PYDE_DECIMALS: u32 = 9;
 
 /// Parse a human-readable amount to raw integer units.
-///
 /// ```rust,ignore
-/// parse_units("1.5", 9)   // Ok(1_500_000_000)
-/// parse_units("100", 18)  // Ok(100_000_000_000_000_000_000)
+/// parse_units("1.5", 9) // Ok(1_500_000_000)
+/// parse_units("100", 18) // Ok(100_000_000_000_000_000_000)
 /// ```
 pub fn parse_units(value: &str, decimals: u32) -> std::result::Result<u128, String> {
     if decimals > 38 {
@@ -313,10 +312,9 @@ pub fn parse_units(value: &str, decimals: u32) -> std::result::Result<u128, Stri
 }
 
 /// Format raw integer units to a human-readable amount.
-///
 /// ```rust,ignore
-/// format_units(1_500_000_000, 9)  // "1.5"
-/// format_units(1_000_000, 9)      // "0.001"
+/// format_units(1_500_000_000, 9) // "1.5"
+/// format_units(1_000_000, 9) // "0.001"
 /// ```
 pub fn format_units(value: u128, decimals: u32) -> String {
     if decimals > 38 {

@@ -1,14 +1,10 @@
 //! Inlined wire-format types for threshold-encrypted transactions.
-//!
 //! Plaintext fields (visible to everyone):
-//!   sender, nonce, gas_limit, access_list, deadline, chain_id, signature
-//!
+//! sender, nonce, gas_limit, access_list, deadline, chain_id, signature
 //! Encrypted fields (hidden until threshold decryption):
-//!   to, value, calldata
-//!
+//! to, value, calldata
 //! Encryption: threshold_encrypt(committee_pk, (to || value || calldata))
-//!             → ThresholdCiphertext (Kyber encaps + symmetric encryption + MAC)
-//!
+//! → ThresholdCiphertext (Kyber encaps + symmetric encryption + MAC)
 //! Originally lived in the `pyde-mempool` crate; inlined here so the
 //! SDK can build encrypted transactions without pulling in the
 //! consensus/mempool side.
@@ -27,7 +23,7 @@ const MAX_KEYS_PER_ACCESS_ENTRY: usize = 1024;
 /// for headroom.
 const MAX_SIG_LEN: usize = 1024;
 /// Wire format from `ThresholdCiphertext::to_wire_bytes` is
-///   `[ct_len:4][kyber_ct:1088][msg_len:4][encrypted_msg:N][mac:32]`
+/// `[ct_len:4][kyber_ct:1088][msg_len:4][encrypted_msg:N][mac:32]`
 /// where `N = 48-byte payload header + calldata`, and calldata is
 /// bounded by `pyde_tx::validation::MAX_CALLDATA = 64 KB`. Sum
 /// ≈ 65 KB; 72 KB leaves ~7 KB headroom for a future format bump.

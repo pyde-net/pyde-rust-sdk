@@ -1,32 +1,28 @@
 //! External-RPC loadgen — submits sustained transfers from a pool
 //! of pre-funded accounts to an RPC endpoint defined by env vars.
-//!
 //! Pairs with cross-region testnets where you want to drive load
 //! into a running chain (4-validator AWS cluster, two-laptop, etc.)
 //! without spinning up an in-process TestNetwork. The accounts file
 //! is the `accounts.json` produced by `pyde testnet`.
-//!
 //! Env vars (all optional, sensible defaults):
-//!   PYDE_RPC               RPC endpoint               default http://127.0.0.1:8545
-//!   PYDE_ACCOUNTS          accounts.json path         default ./aws-3region-net/accounts.json
-//!   PYDE_TPS               target submit rate         default 50
-//!   PYDE_DURATION_S        soak duration seconds      default 600 (10 min)
-//!   PYDE_SENDERS           number of senders to use   default 8 (taken from front of accounts)
-//!   PYDE_GENERATE_SENDERS  if >0, generate N fresh    default 0 (use PYDE_SENDERS pre-funded)
-//!                          wallets and fund each
-//!                          from the faucet (if
-//!                          PYDE_FAUCET_KEY set) or
-//!                          from the last loaded
-//!                          account otherwise
-//!   PYDE_FAUCET_KEY        path to faucet.key file    default unset
-//!                          (raw FALCON private key
-//!                          bytes); used as funder for
-//!                          self-fund mode when set
-//!   PYDE_FUND_WEI          wei per generated sender   default 1e18 (1 PYDE)
-//!
+//! PYDE_RPC RPC endpoint default http://127.0.0.1:8545
+//! PYDE_ACCOUNTS accounts.json path default ./aws-3region-net/accounts.json
+//! PYDE_TPS target submit rate default 50
+//! PYDE_DURATION_S soak duration seconds default 600 (10 min)
+//! PYDE_SENDERS number of senders to use default 8 (taken from front of accounts)
+//! PYDE_GENERATE_SENDERS if >0, generate N fresh default 0 (use PYDE_SENDERS pre-funded)
+//! wallets and fund each
+//! from the faucet (if
+//! PYDE_FAUCET_KEY set) or
+//! from the last loaded
+//! account otherwise
+//! PYDE_FAUCET_KEY path to faucet.key file default unset
+//! (raw FALCON private key
+//! bytes); used as funder for
+//! self-fund mode when set
+//! PYDE_FUND_WEI wei per generated sender default 1e18 (1 PYDE)
 //! Run:
-//!   cargo run --release -p pyde-rust-sdk --example loadgen_ext
-//!
+//! cargo run --release -p pyde-rust-sdk --example loadgen_ext
 //! Periodic status (every 10s): submitted/confirmed/errored counters.
 
 use pyde_rust_sdk::*;
@@ -96,7 +92,7 @@ async fn main() {
             .await
             .unwrap_or_else(|e| panic!("get_nonce[{i}]: {e:?}"));
         let bal = p.get_balance(w.address()).await.unwrap_or(0);
-        println!("  sender[{i}] addr=0x{} starting_nonce={nonce} balance={bal}", hex::encode(w.address()));
+        println!(" sender[{i}] addr=0x{} starting_nonce={nonce} balance={bal}", hex::encode(w.address()));
         wallets.push(w);
         nonces.push(nonce);
     }
@@ -135,7 +131,7 @@ async fn main() {
                 .await
                 .unwrap_or_else(|e| panic!("faucet get_nonce: {e:?}"));
             println!(
-                "  funder: faucet from {path} addr=0x{} starting_nonce={n}",
+                " funder: faucet from {path} addr=0x{} starting_nonce={n}",
                 hex::encode(w.address())
             );
             (w, n)
@@ -144,7 +140,7 @@ async fn main() {
             let w = wallets.remove(funder_idx);
             let n = nonces.remove(funder_idx);
             println!(
-                "  funder: account[{funder_idx}] addr=0x{} starting_nonce={n}",
+                " funder: account[{funder_idx}] addr=0x{} starting_nonce={n}",
                 hex::encode(w.address())
             );
             (w, n)
@@ -195,12 +191,12 @@ async fn main() {
                     Err(e) => {
                         err += 1;
                         if err <= 3 {
-                            eprintln!("  fund[{j}] failed: {e:?}");
+                            eprintln!(" fund[{j}] failed: {e:?}");
                         }
                     }
                 }
             }
-            println!("  funded batch {}..{end}: ok={ok} err={err} (sleeping 3s for inclusion)", i);
+            println!(" funded batch {}..{end}: ok={ok} err={err} (sleeping 3s for inclusion)", i);
             tokio::time::sleep(Duration::from_secs(3)).await;
             i = end;
         }
@@ -233,7 +229,7 @@ async fn main() {
             let e = r_errors.load(Ordering::Relaxed);
             let delta = s - last;
             last = s;
-            println!("  [t+{:>4}s] submitted={s} ({delta} in last 10s) errors={e}",
+            println!(" [t+{:>4}s] submitted={s} ({delta} in last 10s) errors={e}",
                 start.elapsed().as_secs());
         }
     });
@@ -267,7 +263,7 @@ async fn main() {
         };
         if let Err(e) = w.sign_transaction(&mut tx) {
             errors.fetch_add(1, Ordering::Relaxed);
-            eprintln!("  sign[{sender}]: {e:?}");
+            eprintln!(" sign[{sender}]: {e:?}");
             continue;
         }
 
@@ -284,7 +280,7 @@ async fn main() {
                     // Avoid log spam — only print 1-in-50 errors.
                     let n = errors2.load(Ordering::Relaxed);
                     if n % 50 == 1 {
-                        eprintln!("  submit error #{n}: {e:?}");
+                        eprintln!(" submit error #{n}: {e:?}");
                     }
                 }
             }
@@ -303,7 +299,7 @@ async fn main() {
     r_handle.abort();
     println!();
     println!("=== loadgen done ===");
-    println!("  duration:  {}s", start.elapsed().as_secs());
-    println!("  submitted: {}", submitted.load(Ordering::Relaxed));
-    println!("  errors:    {}", errors.load(Ordering::Relaxed));
+    println!(" duration: {}s", start.elapsed().as_secs());
+    println!(" submitted: {}", submitted.load(Ordering::Relaxed));
+    println!(" errors: {}", errors.load(Ordering::Relaxed));
 }

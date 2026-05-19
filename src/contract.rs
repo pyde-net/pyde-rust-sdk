@@ -11,13 +11,11 @@ pub fn compute_selector(name: &str) -> u32 {
 }
 
 /// Build calldata for a contract function call.
-///
 /// ```rust
 /// use pyde_rust_sdk::contract::ContractCall;
-///
 /// let data = ContractCall::new("deposit")
-///     .arg_u64(500)
-///     .build();
+/// .arg_u64(500)
+/// .build();
 /// ```
 #[derive(Clone)]
 pub struct ContractCall {
@@ -220,20 +218,17 @@ impl ContractCall {
     /// Encode a generic Vec: [byte_len:8][count:8][cap:8][elements...].
     /// The closure writes all element data using any arg_* methods.
     /// Works with any element type including strings, structs, nested vecs.
-    ///
     /// ```rust,ignore
     /// // Vec of strings
     /// .arg_vec_of(2, |b| b.arg_string("alice").arg_string("bob"))
-    ///
     /// // Vec of structs
     /// .arg_vec_of(2, |b| b
-    ///     .arg_struct(|s| s.arg_string("alice").arg_u64(25))
-    ///     .arg_struct(|s| s.arg_string("bob").arg_u64(30)))
-    ///
+    /// .arg_struct(|s| s.arg_string("alice").arg_u64(25))
+    /// .arg_struct(|s| s.arg_string("bob").arg_u64(30)))
     /// // Vec of vecs (nested)
     /// .arg_vec_of(2, |b| b
-    ///     .arg_vec_u64(&[1, 2, 3])
-    ///     .arg_vec_u64(&[4, 5]))
+    /// .arg_vec_u64(&[1, 2, 3])
+    /// .arg_vec_u64(&[4, 5]))
     /// ```
     pub fn arg_vec_of(
         mut self,
@@ -278,18 +273,16 @@ impl ContractCall {
 }
 
 /// Build deploy transaction data.
-///
 /// ```rust,ignore
 /// // From artifact with named constructor args (recommended)
 /// let data = DeployData::from_artifact("out/Counter.json", &json!({
-///     "initial_supply": 1000,
-///     "name": "MyToken"
+/// "initial_supply": 1000,
+/// "name": "MyToken"
 /// }))?.build();
-///
 /// // From raw bytecodes with manual args
 /// let data = DeployData::new(constructor_bytes, runtime_bytes)
-///     .arg_u64(1000)
-///     .build();
+/// .arg_u64(1000)
+/// .build();
 /// ```
 pub struct DeployData {
     constructor: Vec<u8>,

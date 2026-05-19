@@ -1,9 +1,7 @@
 //! Comprehensive live integration test for pyde-rust-sdk.
-//!
 //! Covers all 17 groups from LIVE_TEST_PLAN.md.
 //! Requires: pyde node running at localhost:8545 with --dev
 //! Run: cargo test -p pyde-rust-sdk --test live_test -- --nocapture --test-threads=1
-//!
 //! Skipped during `cargo test --workspace` unless PYDE_LIVE_TEST=1 is set.
 
 use pyde_rust_sdk::*;
@@ -14,7 +12,7 @@ use std::path::Path;
 /// These require a running node, fresh state, and --test-threads=1.
 fn require_live() {
     if std::env::var("PYDE_LIVE_TEST").unwrap_or_default() != "1" {
-        eprintln!("  [SKIP] Set PYDE_LIVE_TEST=1 to run live tests");
+        eprintln!(" [SKIP] Set PYDE_LIVE_TEST=1 to run live tests");
         std::process::exit(0);
     }
 }

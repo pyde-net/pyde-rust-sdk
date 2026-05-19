@@ -1,27 +1,20 @@
 //! # Pyde Rust SDK
-//!
 //! Client library for interacting with the Pyde blockchain from Rust.
-//!
 //! ## Quick Start
-//!
 //! ```rust,ignore
 //! use pyde_rust_sdk::{Provider, Wallet, ContractCall};
-//!
 //! #[tokio::main]
 //! async fn main() {
-//!     let provider = Provider::new("http://127.0.0.1:8545");
-//!     let wallet = Wallet::generate().unwrap();
-//!
-//!     // Query
-//!     let balance = provider.get_balance(wallet.address()).await.unwrap();
-//!     let block = provider.get_block_number().await.unwrap();
-//!
-//!     // Transfer
-//!     let receipt = wallet.transfer(&provider, &[0xBB; 32], 1000).await.unwrap();
-//!
-//!     // Contract call
-//!     let data = ContractCall::new("increment").build();
-//!     let receipt = wallet.send_call(&provider, &[0xCC; 32], data, 100_000).await.unwrap();
+//! let provider = Provider::new("http://127.0.0.1:8545");
+//! let wallet = Wallet::generate().unwrap();
+//! // Query
+//! let balance = provider.get_balance(wallet.address()).await.unwrap();
+//! let block = provider.get_block_number().await.unwrap();
+//! // Transfer
+//! let receipt = wallet.transfer(&provider, &[0xBB; 32], 1000).await.unwrap();
+//! // Contract call
+//! let data = ContractCall::new("increment").build();
+//! let receipt = wallet.send_call(&provider, &[0xCC; 32], data, 100_000).await.unwrap();
 //! }
 //! ```
 

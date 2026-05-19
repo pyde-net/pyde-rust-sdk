@@ -197,8 +197,7 @@ impl Wallet {
     // High-level helpers
     // ========================================================================
 
-    /// Register this wallet's FALCON public key on-chain (audit 229).
-    ///
+    /// Register this wallet's FALCON public key on-chain.
     /// Required ONCE per address before the wallet can submit any
     /// signed tx. Pyde uses post-quantum FALCON-512 signatures, which
     /// (unlike ECDSA) don't support pubkey recovery from a sig — so
@@ -206,22 +205,20 @@ impl Wallet {
     /// `RegisterPubkey` tx is unsigned and free; the address-derivation
     /// check (`from == Poseidon2(pubkey)`) is the proof of pubkey
     /// ownership.
-    ///
     /// Pre-conditions enforced by the chain:
-    ///   - This account must exist with `balance > 0` (someone has to
-    ///     send you funds first).
-    ///   - The account must not be already registered.
-    ///
+    /// - This account must exist with `balance > 0` (someone has to
+    /// send you funds first).
+    /// - The account must not be already registered.
     /// Typical first-tx flow for a new user:
-    ///   1. Generate wallet locally (`Wallet::generate()`).
-    ///   2. Receive funds at `wallet.address()` from a faucet or
-    ///      another user.
-    ///   3. Call `wallet.register_pubkey(&provider).await?` once.
-    ///   4. From now on, `transfer` / `send_call` etc. work normally.
+    /// 1. Generate wallet locally (`Wallet::generate()`).
+    /// 2. Receive funds at `wallet.address()` from a faucet or
+    /// another user.
+    /// 3. Call `wallet.register_pubkey(&provider).await?` once.
+    /// 4. From now on, `transfer` / `send_call` etc. work normally.
     pub async fn register_pubkey(&self, provider: &Provider) -> Result<Receipt> {
-        // TPL-606: refuse to send a `RegisterPubkey` whose address-from-
+        // refuse to send a `RegisterPubkey` whose address-from-
         // pubkey derivation does not match `self.address`. The chain
-        // enforces `from == Poseidon2(pubkey)` (audit 229) and would
+        // enforces `from == Poseidon2(pubkey)` and would
         // reject the tx anyway, but this surfaces as a network round-trip
         // followed by an opaque execution failure on the caller's side.
         // Catching the mismatch before we open an RPC connection turns
@@ -247,7 +244,7 @@ impl Wallet {
             data: self.public_key.as_bytes().to_vec(),
             gas_limit: 0,
             nonce,
-            signature: vec![], // unsigned by design — see audit 229
+            signature: vec![], // unsigned by design — see 
             fee_payer: FeePayer::Sender,
             access_list: vec![],
             deadline: None,
@@ -258,8 +255,7 @@ impl Wallet {
     }
 
     /// Build, sign, send a native transfer. Returns receipt (errors on revert).
-    ///
-    /// TPL-601: gas limit is fetched via `provider.estimate_gas_with` against
+    /// gas limit is fetched via `provider.estimate_gas_with` against
     /// the live node rather than hardcoded at 21,000. The 21,000 fallback was
     /// only correct for transfers to an already-warm EOA with no payable
     /// fallback; transfers that touch a cold account or land on a contract
@@ -502,16 +498,16 @@ async fn send_and_check(provider: &Provider, tx: &Transaction) -> Result<Receipt
 }
 
 // ============================================================================
-// Encryption (AES-256-GCM + Argon2id key derivation, audit 306)
+// Encryption (AES-256-GCM + Argon2id key derivation, )
 // ============================================================================
 
 /// Schema versions:
 /// - **1** (legacy): single-iteration `Poseidon2(password || salt)`
-///   KDF. Brute-forceable in milliseconds-to-hours per password on
-///   commodity GPUs.
-/// - **2** (audit 306, current): Argon2id with `m=64 MB, t=3, p=1`,
-///   memory-hard. New keystores ship at v2; v1 still decrypts via
-///   the legacy KDF dispatch.
+/// KDF. Brute-forceable in milliseconds-to-hours per password on
+/// commodity GPUs.
+/// - **2** (, current): Argon2id with `m=64 MB, t=3, p=1`,
+/// memory-hard. New keystores ship at v2; v1 still decrypts via
+/// the legacy KDF dispatch.
 const KEYSTORE_VERSION: u32 = 2;
 const KEYSTORE_VERSION_LEGACY_POSEIDON2: u32 = 1;
 
@@ -519,7 +515,7 @@ const ARGON2_M_COST_KIB: u32 = 64 * 1024;
 const ARGON2_T_COST: u32 = 3;
 const ARGON2_P_COST: u32 = 1;
 
-/// Audit 358: returns `Zeroizing<[u8; 32]>` so the AES key is
+///: returns `Zeroizing<[u8; 32]>` so the AES key is
 /// scrubbed when the wrapper drops.
 fn derive_aes_key(password: &str, salt: &[u8]) -> Result<zeroize::Zeroizing<[u8; 32]>> {
     let params = argon2::Params::new(ARGON2_M_COST_KIB, ARGON2_T_COST, ARGON2_P_COST, Some(32))
@@ -699,7 +695,7 @@ mod tests {
         assert!(Wallet::from_encrypted(&keystore, "wrong").is_err());
     }
 
-    // ── Audit 306: Argon2id migration tests ─────────────────────────
+    // ──: Argon2id migration tests ─────────────────────────
 
     #[test]
     fn new_keystores_are_v2_argon2id() {
