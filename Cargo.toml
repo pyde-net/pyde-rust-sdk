@@ -7,7 +7,7 @@ description = "Rust SDK for interacting with the Pyde blockchain"
 
 [dependencies]
 # Sibling-repo crates (pyde-net/engine)
-pyde-crypto = { path = "../engine/crates/crypto" }
+pyde-crypto = { path = "../pyde-crypto" }
 pyde-tx = { path = "../engine/crates/tx" }
 pyde-account = { path = "../engine/crates/account" }
 

@@ -1,4 +1,14 @@
-# pyde-rust-sdk
+<p align="center">
+  <img src="./assets/logo.png" width="120" alt="Pyde logo" />
+</p>
+
+<h1 align="center">pyde-rust-sdk</h1>
+
+<p align="center">
+  <em>Rust SDK for the Pyde blockchain</em>
+</p>
+
+---
 
 Rust SDK for interacting with the Pyde blockchain. Async RPC client, FALCON-512 wallet with AES-256-GCM encrypted keystore, ABI-aware contract interaction, and typed error handling.
 
