@@ -6,10 +6,15 @@ edition = "2021"
 description = "Rust SDK for interacting with the Pyde blockchain"
 
 [dependencies]
-# Sibling-repo crates (pyde-net/engine)
 pyde-crypto = { path = "../pyde-crypto" }
-pyde-tx = { path = "../engine/crates/tx" }
-pyde-account = { path = "../engine/crates/account" }
+
+# TODO: pyde-tx and pyde-account pointed to the pre-pivot engine workspace,
+# which has been retired (pre-pivot state preserved in pyde-net/archive).
+# They will be re-pointed to the fresh post-pivot engine repo when that's
+# bootstrapped. The SDK will not build standalone until then; for historical
+# builds against pre-pivot types, repoint manually to ../archive/crates/...
+# pyde-tx = { path = "../engine/crates/tx" }
+# pyde-account = { path = "../engine/crates/account" }
 
 # Async HTTP + WebSocket
 reqwest = { version = "0.12", features = ["json"] }
