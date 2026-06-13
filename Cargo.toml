@@ -3,36 +3,64 @@ name = "pyde-rust-sdk"
 version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
-description = "Rust SDK for interacting with the Pyde blockchain"
+description = "Rust SDK for the Pyde blockchain — account generation, signing, RPC client, contract interaction"
+repository = "https://github.com/pyde-net/pyde-rust-sdk"
 
 [dependencies]
+# ── Crypto (sibling path-dep per pyde-net convention) ─────────────────
+# FALCON-512 signatures, Poseidon2 hashing, Blake3, Kyber-768.
 pyde-crypto = { path = "../pyde-crypto" }
 
-# TODO: pyde-tx and pyde-account pointed to the pre-pivot engine workspace,
-# which has been retired (pre-pivot state preserved in pyde-net/archive).
-# They will be re-pointed to the fresh post-pivot engine repo when that's
-# bootstrapped. The SDK will not build standalone until then; for historical
-# builds against pre-pivot types, repoint manually to ../archive/crates/...
-# pyde-tx = { path = "../engine/crates/tx" }
-# pyde-account = { path = "../engine/crates/account" }
-
-# Async HTTP + WebSocket
-reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["time", "sync", "macros"] }
+# ── Async runtime + transport ────────────────────────────────────────
+tokio = { version = "1", features = ["time", "sync", "macros", "rt-multi-thread"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
+async-trait = "0.1"
 
-# Serialization
+# ── Serialization ────────────────────────────────────────────────────
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+borsh = "1"           # canonical Pyde wire encoding — matches engine byte-for-byte
 hex = "0.4"
-ethnum = "1.5.2"
 
-# Encryption
-aes-gcm = "0.10"
+# ── Encrypted keystore (T8) ──────────────────────────────────────────
+argon2 = "0.5"        # password-based KDF for at-rest secret-key storage
+aes-gcm = "0.10"      # AEAD wrapping the encrypted key material
 rand = "0.8"
-argon2 = "0.5"
 zeroize = { version = "1", features = ["alloc"] }
 
-# Error handling
+# ── WASM ABI parsing (T10) ───────────────────────────────────────────
+wasmparser = "0.220"  # walks deployed contract bytecode to find pyde.abi custom section
+
+# ── Big-integer support for u256/i256 contract calldata (T10) ────────
+ruint = { version = "1", features = ["serde"] }
+
+# ── Error handling ───────────────────────────────────────────────────
 thiserror = "2"
+
+# ── Proc-macro sub-crate ─────────────────────────────────────────────
+# pyde_abi! lives in a separate crate because Rust requires
+# proc-macros to be in a `proc-macro = true` crate. Re-exported
+# via `pub use pyde_sdk_macros::pyde_abi;` from `src/contract/`.
+pyde-sdk-macros = { path = "./pyde-sdk-macros" }
+
+[dev-dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+[lints.rust]
+unsafe_code = "deny"  # SDK is pure Rust — no wasm-bindgen here, no FFI; deny is appropriate
+unused_must_use = "deny"
