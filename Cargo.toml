@@ -24,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 borsh = { version = "1", features = ["derive"] }  # canonical Pyde wire encoding — matches engine byte-for-byte
 hex = "0.4"
+blake3 = "1"          # event-signature topic hashing per Pyde dual-hash strategy
 
 # ── Encrypted keystore (T8) ──────────────────────────────────────────
 argon2 = "0.5"        # password-based KDF for at-rest secret-key storage

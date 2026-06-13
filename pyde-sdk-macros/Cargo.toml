@@ -10,8 +10,11 @@ repository = "https://github.com/pyde-net/pyde-rust-sdk"
 proc-macro = true
 
 [dependencies]
-# T10 will add: proc-macro2, syn, quote, blake3 (for selector derivation).
-# T7 ships an empty stub so the workspace builds.
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
