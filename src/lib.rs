@@ -50,6 +50,7 @@ pub mod ws;
 
 // ── Top-level re-exports — what 95% of users reach for. ──────────────
 
+pub use contract::{pyde_abi, Contract, DecodedEvent};
 pub use error::{Result, SdkError};
 pub use provider::{HttpProvider, HttpTransport, PendingTx, Provider, RootProvider, Transport};
 pub use signer::{LocalSigner, Signer};

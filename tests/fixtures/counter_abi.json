@@ -1,0 +1,33 @@
+{
+  "name": "Counter",
+  "version": "0.1.0",
+  "functions": [
+    {
+      "name": "get_count",
+      "attrs": 129,
+      "params": [],
+      "returns": "u64"
+    },
+    {
+      "name": "increment",
+      "attrs": 128,
+      "params": [],
+      "returns": null
+    },
+    {
+      "name": "add",
+      "attrs": 128,
+      "params": [
+        { "name": "delta", "type": "u64" }
+      ],
+      "returns": null
+    },
+    {
+      "name": "owner",
+      "attrs": 129,
+      "params": [],
+      "returns": "address"
+    }
+  ],
+  "events": []
+}

@@ -20,14 +20,20 @@
 //! - [`rpc`] — JSON-RPC response shapes (`Receipt`, `Log`, `LogFilter`,
 //!   `BlockHeader`, `CallOverrides`, `FeeData`)
 
+pub mod abi;
 pub mod account;
 pub mod address;
 pub mod falcon;
 pub mod hash;
 pub mod rpc;
+pub mod state_schema;
 pub mod tx_types;
 
 // ── Flat re-exports — the surface most consumers reach for. ───
+pub use abi::{
+    ContractAbi, ContractType, EnumVariant, EventAbi, FunctionAbi, FunctionAttrs, ParamAbi,
+    ParamType, TypeAbi, TypeKind,
+};
 pub use account::{
     AccountType, AuthKeys, Balance, InvalidAuthKeys, Nonce, MAX_MULTISIG_SIGNERS, NONCE_WINDOW_SIZE,
 };
@@ -42,6 +48,7 @@ pub use rpc::{
     LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, SimulationAccessList,
     SimulationRead, SimulationReadVersion, SimulationReceipt, SimulationResult, WaveHeader,
 };
+pub use state_schema::{FieldKind, ScalarType, StateField, StateSchema};
 pub use tx_types::{
     AccessEntry, AccessType, CallPayload, FeePayer, FeeQuanta, Gas, GasUsed, Tx, TxType,
     MAX_CALLDATA, MAX_TX_SIZE, MIN_GAS_LIMIT,
