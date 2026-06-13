@@ -221,7 +221,7 @@ pub struct NodeInfo {
 /// Request body for `pyde_call`.
 ///
 /// `data` MUST be the Borsh-encoded
-/// [`pyde_engine_types::CallPayload`] shape — `{function, calldata}`.
+/// [`crate::types::CallPayload`] shape — `{function, calldata}`.
 /// The SDK's contract layer (T10) populates this automatically when
 /// dispatching typed calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -392,8 +392,9 @@ impl WsProvider {
 
     /// Subscribe to events from a single `(address, topic)` pair.
     ///
-    /// **v1: not yet supported by engine.** Use [`subscribe_logs`]
-    /// with a single-contract / single-topic filter instead.
+    /// **v1: not yet supported by engine.** Use
+    /// [`Self::subscribe_logs`] with a single-contract /
+    /// single-topic filter instead.
     ///
     /// # Errors
     /// Always returns [`SdkError::Other`] on v1.

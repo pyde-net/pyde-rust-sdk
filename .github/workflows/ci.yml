@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ── fmt ──────────────────────────────────────────────────────
+  # Pure formatting check — no sibling deps required.
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup show
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+
+  # ── clippy ───────────────────────────────────────────────────
+  # Needs the sibling `pyde-crypto` repo (private) for the actual
+  # compile. The checkout step uses the `PYDE_REPO_TOKEN` secret to
+  # clone — set it in repo settings to enable green CI here. Without
+  # the secret this job runs but fails at the cargo step; we accept
+  # that until pyde-crypto opens up.
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pyde-rust-sdk
+      - name: Checkout sibling pyde-crypto
+        uses: actions/checkout@v4
+        with:
+          repository: pyde-net/pyde-crypto
+          path: pyde-crypto
+          token: ${{ secrets.PYDE_REPO_TOKEN }}
+        continue-on-error: true
+      - name: Install toolchain
+        run: rustup show
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            pyde-rust-sdk/target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('pyde-rust-sdk/**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-clippy-
+      - name: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: pyde-rust-sdk
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ── test ─────────────────────────────────────────────────────
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pyde-rust-sdk
+      - name: Checkout sibling pyde-crypto
+        uses: actions/checkout@v4
+        with:
+          repository: pyde-net/pyde-crypto
+          path: pyde-crypto
+          token: ${{ secrets.PYDE_REPO_TOKEN }}
+        continue-on-error: true
+      - name: Install toolchain
+        run: rustup show
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            pyde-rust-sdk/target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('pyde-rust-sdk/**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+      - name: cargo test --workspace --no-fail-fast
+        working-directory: pyde-rust-sdk
+        run: cargo test --workspace --no-fail-fast
+
+  # ── doc ──────────────────────────────────────────────────────
+  doc:
+    name: doc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pyde-rust-sdk
+      - name: Checkout sibling pyde-crypto
+        uses: actions/checkout@v4
+        with:
+          repository: pyde-net/pyde-crypto
+          path: pyde-crypto
+          token: ${{ secrets.PYDE_REPO_TOKEN }}
+        continue-on-error: true
+      - name: Install toolchain
+        run: rustup show
+      - name: cargo doc --workspace --no-deps
+        working-directory: pyde-rust-sdk
+        run: cargo doc --workspace --no-deps
+
+  # ── examples ─────────────────────────────────────────────────
+  # Build every example binary — catches surface drift between the
+  # SDK API and the canonical end-to-end flows.
+  examples:
+    name: examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pyde-rust-sdk
+      - name: Checkout sibling pyde-crypto
+        uses: actions/checkout@v4
+        with:
+          repository: pyde-net/pyde-crypto
+          path: pyde-crypto
+          token: ${{ secrets.PYDE_REPO_TOKEN }}
+        continue-on-error: true
+      - name: Install toolchain
+        run: rustup show
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            pyde-rust-sdk/target
+          key: ${{ runner.os }}-cargo-examples-${{ hashFiles('pyde-rust-sdk/**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-examples-
+      - name: cargo build --workspace --examples
+        working-directory: pyde-rust-sdk
+        run: cargo build --workspace --examples

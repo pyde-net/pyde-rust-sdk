@@ -7,7 +7,7 @@
 //! [`pyde_abi!`] macro, and the small utility helpers every
 //! wallet/dapp needs.
 //!
-//! Sister SDK in TypeScript: [`pyde-ts-sdk`]. Both mirror the same
+//! Sister SDK in TypeScript: `pyde-ts-sdk`. Both mirror the same
 //! conceptual surface; both share the canonical Pyde wire format
 //! through different cryptographic paths (this crate uses
 //! [`pyde_crypto`] directly; the TS SDK uses `pyde-crypto-wasm`).
