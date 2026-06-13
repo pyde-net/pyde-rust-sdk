@@ -37,8 +37,12 @@ pub use falcon::{
     FALCON_SIG_MAX_LEN,
 };
 pub use hash::{Blake3Hash, Poseidon2Hash, TxHash, HASH_LEN};
-pub use rpc::{BlockHeader, CallOverrides, FeeData, Log, LogFilter, Receipt};
+pub use rpc::{
+    AccountInfo, BlockHeader, CallOverrides, CallRequest, Event, EventFilter, FeeData, Log,
+    LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, SimulationAccessList,
+    SimulationRead, SimulationReadVersion, SimulationReceipt, SimulationResult, WaveHeader,
+};
 pub use tx_types::{
-    AccessEntry, AccessType, FeePayer, FeeQuanta, Gas, GasUsed, Tx, TxType, MAX_CALLDATA,
-    MAX_TX_SIZE, MIN_GAS_LIMIT,
+    AccessEntry, AccessType, CallPayload, FeePayer, FeeQuanta, Gas, GasUsed, Tx, TxType,
+    MAX_CALLDATA, MAX_TX_SIZE, MIN_GAS_LIMIT,
 };

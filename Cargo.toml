@@ -14,6 +14,7 @@ pyde-crypto = { path = "../pyde-crypto" }
 # ── Async runtime + transport ────────────────────────────────────────
 tokio = { version = "1", features = ["time", "sync", "macros", "rt-multi-thread"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+url = "2"             # validate RPC endpoints up front rather than on first send
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
 async-trait = "0.1"
@@ -48,6 +49,7 @@ pyde-sdk-macros = { path = "./pyde-sdk-macros" }
 [dev-dependencies]
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
+wiremock = "0.6"      # in-process HTTP mock for provider integration tests
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

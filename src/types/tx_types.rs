@@ -285,6 +285,32 @@ impl Tx {
     }
 }
 
+/// Borsh-encoded payload carried in `Tx::data` when
+/// `tx_type == TxType::Standard` AND `tx.to` resolves to a
+/// contract account (one with a non-zero `code_hash`).
+///
+/// Pyde dispatches contract calls by **function name** rather than
+/// by 4-byte selector — the chain parses the `pyde.abi` custom
+/// section at deploy time, so `name → entry point` lookup is a free
+/// O(1) ABI walk. Wallets don't need to compute selectors; they
+/// just send the function name + raw argument bytes.
+///
+/// All fields are wire-load-bearing — adding a field is a hard
+/// fork of the call envelope.
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+pub struct CallPayload {
+    /// Name of the contract function to invoke. Looked up in the
+    /// deployed contract's `ContractAbi.functions` by exact match.
+    /// Missing names revert with `ERR_INVALID_FUNCTION_NAME`;
+    /// constructor-attributed functions are locked out (deploy-time
+    /// only).
+    pub function: String,
+    /// Opaque function-argument bytes. The contract's WASM reads
+    /// them via `pyde::calldata_size` + `pyde::calldata_copy`;
+    /// encoding is contract-defined.
+    pub calldata: Vec<u8>,
+}
+
 // Internal test-only accessor; placed before the `#[cfg(test)] mod
 // tests` block to satisfy clippy's items-after-test-module rule.
 impl FeePayer {

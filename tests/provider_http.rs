@@ -1,0 +1,409 @@
+//! HTTP provider integration tests against a wiremock-hosted JSON-RPC
+//! server. Each test stamps a response for the method under test +
+//! asserts the SDK decodes it the way the engine ships it.
+//!
+//! These tests are the closest thing the SDK has to a contract test
+//! against the live engine — wiremock plays the role of the node, and
+//! the SDK exercises its full HTTP transport / decode stack.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::sync::Arc;
+
+use pyde_rust_sdk::provider::{HttpTransport, Provider, RootProvider};
+use pyde_rust_sdk::types::{
+    Address, EventFilter, LogFilter, ReceiptStatus, TxHash, FALCON_PUBKEY_LEN,
+};
+use pyde_rust_sdk::Signer;
+use serde_json::{json, Value};
+use wiremock::matchers::{body_partial_json, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+/// Build a wiremock-backed provider and return it alongside the
+/// server so the test can stamp additional responses.
+async fn provider_with_server() -> (Arc<RootProvider<HttpTransport>>, MockServer) {
+    let server = MockServer::start().await;
+    let transport = HttpTransport::new(server.uri()).unwrap();
+    (Arc::new(RootProvider::new(transport)), server)
+}
+
+/// Build a JSON-RPC response wrapping `result`.
+fn ok_response(result: Value) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": result,
+    }))
+}
+
+/// Build a wiremock matcher that requires the incoming JSON body to
+/// have `method == method_name` (other fields free).
+fn match_method(method_name: &str) -> wiremock::matchers::BodyPartialJsonMatcher {
+    body_partial_json(json!({ "method": method_name }))
+}
+
+// ── Chain info ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn chain_id_decodes_hex() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(match_method("pyde_chainId"))
+        .respond_with(ok_response(json!("0x1")))
+        .mount(&server)
+        .await;
+    assert_eq!(provider.chain_id().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn wave_id_decodes_hex() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_waveId"))
+        .respond_with(ok_response(json!("0x2a")))
+        .mount(&server)
+        .await;
+    assert_eq!(provider.wave_id().await.unwrap(), 42);
+}
+
+#[tokio::test]
+async fn get_node_info_decodes() {
+    let (provider, server) = provider_with_server().await;
+    let fake_pk = format!("0x{}", "ab".repeat(FALCON_PUBKEY_LEN));
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getNodeInfo"))
+        .respond_with(ok_response(json!({
+            "peer_id": "deadbeef",
+            "falcon_pubkey": fake_pk,
+            "listen_addrs": ["/ip4/127.0.0.1/tcp/9000"],
+            "agent_version": "pyde-node/0.1.0",
+            "protocol_version": "pyde/1"
+        })))
+        .mount(&server)
+        .await;
+    let info = provider.get_node_info().await.unwrap();
+    assert_eq!(info.peer_id, "deadbeef");
+    assert_eq!(info.protocol_version, "pyde/1");
+    assert_eq!(info.listen_addrs.len(), 1);
+}
+
+// ── Account state ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn get_balance_decodes_quanta() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getBalance"))
+        .respond_with(ok_response(json!("0x3b9aca00")))
+        .mount(&server)
+        .await;
+    let addr = Address::new([0x42; 32]);
+    let balance = provider.get_balance(&addr).await.unwrap();
+    assert_eq!(balance, 1_000_000_000);
+}
+
+#[tokio::test]
+async fn get_nonce_decodes() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTransactionCount"))
+        .respond_with(ok_response(json!("0x7")))
+        .mount(&server)
+        .await;
+    let addr = Address::new([0xAA; 32]);
+    assert_eq!(provider.get_nonce(&addr).await.unwrap(), 7);
+}
+
+#[tokio::test]
+async fn get_account_decodes_engine_shape() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getAccount"))
+        .respond_with(ok_response(json!({
+            "address": format!("0x{}", "aa".repeat(32)),
+            "account_type": "eoa",
+            "balance": "0x3b9aca00",
+            "nonce": 5,
+            "code_hash": format!("0x{}", "00".repeat(32)),
+            "state_root": format!("0x{}", "00".repeat(32)),
+        })))
+        .mount(&server)
+        .await;
+    let addr = Address::new([0xAA; 32]);
+    let account = provider.get_account(&addr).await.unwrap();
+    assert_eq!(account.balance_quanta(), 1_000_000_000);
+    assert_eq!(account.nonce, 5);
+    assert!(!account.is_contract());
+}
+
+#[tokio::test]
+async fn get_contract_code_decodes_bytes() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getContractCode"))
+        .respond_with(ok_response(json!("0xdeadbeef")))
+        .mount(&server)
+        .await;
+    let addr = Address::new([0xCC; 32]);
+    assert_eq!(
+        provider.get_contract_code(&addr).await.unwrap(),
+        vec![0xDE, 0xAD, 0xBE, 0xEF]
+    );
+}
+
+#[tokio::test]
+async fn get_storage_slot_handles_none() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getStorageSlot"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    let slot = [0x77; 32];
+    assert!(provider.get_storage_slot(&slot).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn get_storage_slot_decodes_bytes() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getStorageSlot"))
+        .respond_with(ok_response(json!("0xcafe")))
+        .mount(&server)
+        .await;
+    let slot = [0x77; 32];
+    assert_eq!(
+        provider.get_storage_slot(&slot).await.unwrap(),
+        Some(vec![0xCA, 0xFE])
+    );
+}
+
+#[tokio::test]
+async fn resolve_name_handles_registered_and_unregistered() {
+    let (provider, server) = provider_with_server().await;
+    let registered = format!("0x{}", "11".repeat(32));
+    Mock::given(method("POST"))
+        .and(match_method("pyde_resolveName"))
+        .respond_with(ok_response(json!(registered.clone())))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    let resolved = provider.resolve_name("alice").await.unwrap().unwrap();
+    assert_eq!(resolved.to_hex(), registered);
+
+    // Next stub returns null → unregistered.
+    Mock::given(method("POST"))
+        .and(match_method("pyde_resolveName"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    assert!(provider.resolve_name("nobody").await.unwrap().is_none());
+}
+
+// ── Receipt ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn get_receipt_decodes_engine_shape() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": format!("0x{}", "ab".repeat(32)),
+            "wave_id": "0x5",
+            "tx_index": "0x2",
+            "status": "success",
+            "gas_used": "0x5208",
+            "fee_paid": "0x12345",
+            "return_data": "0x",
+            "events": []
+        })))
+        .mount(&server)
+        .await;
+    let hash = TxHash::new([0xAB; 32]);
+    let receipt = provider.get_receipt(&hash).await.unwrap().unwrap();
+    assert!(matches!(receipt.status, ReceiptStatus::Success));
+    assert_eq!(receipt.gas(), 0x5208);
+    assert_eq!(receipt.fee_paid_quanta(), 0x12345);
+}
+
+#[tokio::test]
+async fn get_receipt_handles_null() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getReceipt"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    let hash = TxHash::new([0xAB; 32]);
+    assert!(provider.get_receipt(&hash).await.unwrap().is_none());
+}
+
+// ── send_raw_transaction ────────────────────────────────────────
+
+#[tokio::test]
+async fn send_raw_transaction_round_trips() {
+    use pyde_rust_sdk::{tx::TxBuilder, wallet::Wallet};
+
+    let (provider, server) = provider_with_server().await;
+    let wallet = Wallet::generate().unwrap();
+    let mut tx = TxBuilder::new()
+        .from(wallet.address())
+        .transfer(Address::new([0x99; 32]), 1_000)
+        .build()
+        .unwrap();
+    wallet.sign_tx(&mut tx).await.unwrap();
+    let expected = pyde_rust_sdk::tx::tx_hash(&tx);
+
+    let expected_hex = format!("0x{}", hex::encode(expected.as_bytes()));
+    Mock::given(method("POST"))
+        .and(match_method("pyde_sendRawTransaction"))
+        .respond_with(ok_response(json!(expected_hex)))
+        .mount(&server)
+        .await;
+    let returned = provider.send_raw_transaction(&tx).await.unwrap();
+    assert_eq!(returned, expected);
+}
+
+// ── Errors ──────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn rpc_error_surfaces() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_chainId"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32603, "message": "internal error" }
+        })))
+        .mount(&server)
+        .await;
+    let err = provider.chain_id().await.unwrap_err();
+    assert!(matches!(err, pyde_rust_sdk::SdkError::Rpc(_)));
+}
+
+#[tokio::test]
+async fn http_5xx_surfaces() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_chainId"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("server boom"))
+        .mount(&server)
+        .await;
+    let err = provider.chain_id().await.unwrap_err();
+    assert!(matches!(err, pyde_rust_sdk::SdkError::Rpc(_)));
+}
+
+// ── Logs ────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn get_logs_decodes_page() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getLogs"))
+        .respond_with(ok_response(json!({
+            "entries": [{
+                "wave_id": "0x1",
+                "tx_index": "0x0",
+                "event_index": "0x0",
+                "contract_addr": format!("0x{}", "ab".repeat(32)),
+                "topics": [format!("0x{}", "11".repeat(32))],
+                "data": "0xbeef"
+            }],
+            "next_cursor": null
+        })))
+        .mount(&server)
+        .await;
+    let filter = LogFilter::default();
+    let page = provider.get_logs(&filter).await.unwrap();
+    assert_eq!(page.entries.len(), 1);
+    assert!(page.next_cursor.is_none());
+}
+
+#[tokio::test]
+async fn get_events_decodes_array() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getEvents"))
+        .respond_with(ok_response(json!([
+            {
+                "wave_id": "0x1",
+                "tx_index": "0x0",
+                "event_index": "0x0",
+                "contract_addr": format!("0x{}", "ab".repeat(32)),
+                "topics": [],
+                "data": "0x"
+            }
+        ])))
+        .mount(&server)
+        .await;
+    let events = provider
+        .get_events(&EventFilter {
+            from_wave: Some("0x0".into()),
+            to_wave: None,
+            contract: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1);
+}
+
+// ── PendingTx ───────────────────────────────────────────────────
+
+#[tokio::test]
+async fn pending_tx_waits_for_receipt() {
+    use std::time::Duration;
+
+    let (provider, server) = provider_with_server().await;
+    let hash = TxHash::new([0xCD; 32]);
+
+    // First two polls return null (mempool); third returns the
+    // receipt. Mount the null stub first with up_to_n_times(2) so
+    // the success stub fires last.
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getReceipt"))
+        .respond_with(ok_response(Value::Null))
+        .up_to_n_times(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": format!("0x{}", hex::encode(hash.as_bytes())),
+            "wave_id": "0x1",
+            "tx_index": "0x0",
+            "status": "success",
+            "gas_used": "0x5208",
+            "fee_paid": "0x1",
+            "return_data": "0x",
+            "events": []
+        })))
+        .mount(&server)
+        .await;
+    let dyn_provider: Arc<dyn pyde_rust_sdk::Provider> = provider.clone();
+    let pending = pyde_rust_sdk::PendingTx::new(hash, dyn_provider)
+        .with_poll_interval(Duration::from_millis(10))
+        .with_timeout(Duration::from_secs(2));
+    let receipt = pending.wait_for_receipt().await.unwrap();
+    assert!(receipt.is_success());
+}
+
+#[tokio::test]
+async fn pending_tx_times_out() {
+    use std::time::Duration;
+
+    let (provider, server) = provider_with_server().await;
+    let hash = TxHash::new([0xEF; 32]);
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getReceipt"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    let dyn_provider: Arc<dyn pyde_rust_sdk::Provider> = provider.clone();
+    let pending = pyde_rust_sdk::PendingTx::new(hash, dyn_provider)
+        .with_poll_interval(Duration::from_millis(10))
+        .with_timeout(Duration::from_millis(50));
+    let err = pending.wait_for_receipt().await.unwrap_err();
+    assert!(matches!(err, pyde_rust_sdk::SdkError::Timeout(_)));
+}
