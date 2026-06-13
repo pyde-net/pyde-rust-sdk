@@ -182,7 +182,13 @@ pub struct ParamAbi {
     Clone, Debug, Eq, PartialEq, Hash, BorshSerialize, BorshDeserialize, Serialize, Deserialize,
 )]
 pub struct FunctionAbi {
-    /// 4-byte function selector (typically `Blake3(name)[..4]`).
+    /// 4-byte function selector — `Blake3(name)[..4]` per
+    /// [HOST_FN_ABI §3.7.4][spec]. Pyde dispatches by function
+    /// name rather than by selector; the chain never verifies
+    /// this field at call time. Explorers + indexers can
+    /// cross-check it against the canonical Blake3 hash.
+    ///
+    /// [spec]: https://book.pyde.network/companion/HOST_FN_ABI_SPEC#374-function-selector
     pub selector: [u8; 4],
     /// Human-readable function name.
     pub name: String,
