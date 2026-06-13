@@ -1,0 +1,27 @@
+[package]
+name = "pyde-sdk-macros"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+description = "Proc-macros for pyde-rust-sdk — pyde_abi! contract codegen"
+repository = "https://github.com/pyde-net/pyde-rust-sdk"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+# T10 will add: proc-macro2, syn, quote, blake3 (for selector derivation).
+# T7 ships an empty stub so the workspace builds.
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+[lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
