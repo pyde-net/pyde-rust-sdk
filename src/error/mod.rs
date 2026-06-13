@@ -40,7 +40,7 @@ pub enum SdkError {
     Timeout(String),
 
     /// Transaction reverted on-chain. State changes rolled back; gas is
-    /// still charged per [`ReceiptStatus::Reverted`].
+    /// still charged per [`crate::types::ReceiptStatus::Reverted`].
     #[error("{}", format_revert(.gas_used, .data))]
     Reverted {
         /// Gas charged before the revert.
