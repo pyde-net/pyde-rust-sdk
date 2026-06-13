@@ -232,105 +232,85 @@ fn rust_to_value_expr(ty: &JsonType, value_expr: TokenStream2) -> syn::Result<To
 fn value_to_rust_expr(ty: &JsonType) -> syn::Result<TokenStream2> {
     Ok(match ty {
         JsonType::Simple(s) => match s.as_str() {
-            "u8" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::U8(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected u8, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "u16" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::U16(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected u16, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "u32" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::U32(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected u32, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "u64" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::U64(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected u64, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "u128" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::U128(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected u128, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "i8" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::I8(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected i8, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "i64" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::I64(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected i64, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "bool" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::Bool(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected bool, got {:?}", value)
-                        )
-                    );
-                }
-            ),
+            "u8" => quote!(if let ::pyde_rust_sdk::contract::Value::U8(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected u8, got {:?}", value),
+                ));
+            }),
+            "u16" => quote!(if let ::pyde_rust_sdk::contract::Value::U16(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected u16, got {:?}", value),
+                ));
+            }),
+            "u32" => quote!(if let ::pyde_rust_sdk::contract::Value::U32(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected u32, got {:?}", value),
+                ));
+            }),
+            "u64" => quote!(if let ::pyde_rust_sdk::contract::Value::U64(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected u64, got {:?}", value),
+                ));
+            }),
+            "u128" => quote!(if let ::pyde_rust_sdk::contract::Value::U128(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected u128, got {:?}", value),
+                ));
+            }),
+            "i8" => quote!(if let ::pyde_rust_sdk::contract::Value::I8(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected i8, got {:?}", value),
+                ));
+            }),
+            "i64" => quote!(if let ::pyde_rust_sdk::contract::Value::I64(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected i64, got {:?}", value),
+                ));
+            }),
+            "bool" => quote!(if let ::pyde_rust_sdk::contract::Value::Bool(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected bool, got {:?}", value),
+                ));
+            }),
             "address" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::Address(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected address, got {:?}", value)
-                        )
-                    );
+                if let ::pyde_rust_sdk::contract::Value::Address(v) = value {
+                    v
+                } else {
+                    return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                        ::std::format!("expected address, got {:?}", value),
+                    ));
                 }
             ),
-            "bytes" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::Bytes(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected bytes, got {:?}", value)
-                        )
-                    );
-                }
-            ),
-            "string" => quote!(
-                if let ::pyde_rust_sdk::contract::Value::String(v) = value { v } else {
-                    return ::std::result::Result::Err(
-                        ::pyde_rust_sdk::SdkError::InvalidResponse(
-                            ::std::format!("expected string, got {:?}", value)
-                        )
-                    );
-                }
-            ),
+            "bytes" => quote!(if let ::pyde_rust_sdk::contract::Value::Bytes(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected bytes, got {:?}", value),
+                ));
+            }),
+            "string" => quote!(if let ::pyde_rust_sdk::contract::Value::String(v) = value {
+                v
+            } else {
+                return ::std::result::Result::Err(::pyde_rust_sdk::SdkError::InvalidResponse(
+                    ::std::format!("expected string, got {:?}", value),
+                ));
+            }),
             other => {
                 return Err(syn::Error::new(
                     proc_macro2::Span::call_site(),
