@@ -350,12 +350,29 @@ impl TxBuilder {
     /// Configure this builder as a contract deployment.
     ///
     /// Sets `tx_type = Deploy`, `to = Address::ZERO`, and `data` to
-    /// the supplied WASM bytecode.
-    #[must_use]
-    pub fn deploy(self, wasm_bytecode: Vec<u8>) -> Self {
-        self.tx_type(TxType::Deploy)
-            .to(Address::ZERO)
-            .data(wasm_bytecode)
+    /// the Borsh encoding of [`crate::types::DeployData`] (name,
+    /// WASM bytes, contract type, constructor calldata). The
+    /// deployed contract's address is derived deterministically as
+    /// `Address::from_contract_name(name)`.
+    ///
+    /// # Errors
+    /// Returns [`SdkError::Other`] if Borsh encoding fails — which
+    /// in practice requires malformed input.
+    pub fn deploy(
+        self,
+        name: impl Into<String>,
+        wasm_bytes: Vec<u8>,
+        contract_type: crate::types::ContractType,
+        init_calldata: Vec<u8>,
+    ) -> Result<Self, SdkError> {
+        let data = borsh::to_vec(&crate::types::DeployData {
+            name: name.into(),
+            wasm_bytes,
+            contract_type,
+            init_calldata,
+        })
+        .map_err(|e| SdkError::Other(format!("borsh encode DeployData: {e}")))?;
+        Ok(self.tx_type(TxType::Deploy).to(Address::ZERO).data(data))
     }
 
     /// Configure this builder as a contract call.
@@ -651,13 +668,24 @@ mod tests {
         let wasm = b"\0asm\x01\0\0\0".to_vec();
         let tx = TxBuilder::new()
             .from(from)
-            .deploy(wasm.clone())
+            .deploy(
+                "my-contract",
+                wasm.clone(),
+                crate::types::ContractType::Contract,
+                Vec::new(),
+            )
+            .unwrap()
             .gas_limit(5_000_000)
             .build()
             .unwrap();
         assert_eq!(tx.tx_type, TxType::Deploy);
         assert!(tx.to.is_zero());
-        assert_eq!(tx.data, wasm);
+        // tx.data is the Borsh encoding of DeployData; decode to confirm.
+        let decoded: crate::types::DeployData = borsh::from_slice(&tx.data).unwrap();
+        assert_eq!(decoded.name, "my-contract");
+        assert_eq!(decoded.wasm_bytes, wasm);
+        assert_eq!(decoded.contract_type, crate::types::ContractType::Contract);
+        assert!(decoded.init_calldata.is_empty());
     }
 
     #[test]

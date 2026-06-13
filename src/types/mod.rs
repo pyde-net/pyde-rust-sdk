@@ -50,6 +50,6 @@ pub use rpc::{
 };
 pub use state_schema::{FieldKind, ScalarType, StateField, StateSchema};
 pub use tx_types::{
-    AccessEntry, AccessType, CallPayload, FeePayer, FeeQuanta, Gas, GasUsed, Tx, TxType,
-    MAX_CALLDATA, MAX_TX_SIZE, MIN_GAS_LIMIT,
+    AccessEntry, AccessType, CallPayload, DeployData, FeePayer, FeeQuanta, Gas, GasUsed, Tx,
+    TxType, MAX_CALLDATA, MAX_TX_SIZE, MIN_GAS_LIMIT,
 };

@@ -51,6 +51,7 @@ pyde-sdk-macros = { path = "./pyde-sdk-macros" }
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 wiremock = "0.6"      # in-process HTTP mock for provider integration tests
+proptest = "1"        # property-based tests over the codec + tx round-trip
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

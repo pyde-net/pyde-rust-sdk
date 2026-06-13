@@ -73,19 +73,26 @@ impl PendingTx {
 
     /// Block until the receipt is available or the deadline elapses.
     ///
-    /// Polls `pyde_getReceipt` at [`Self::with_poll_interval`] until
-    /// it returns `Some`. The mempool→commit path on a healthy
+    /// Polls `pyde_getTransactionReceipt` at [`Self::with_poll_interval`]
+    /// until it returns `Some`. The mempool→commit path on a healthy
     /// devnet is typically 1-3 waves (<1.5 s); the default 60-second
     /// timeout is a generous backstop for slow / saturated networks.
+    ///
+    /// Note: we poll `pyde_getTransactionReceipt` (the hot state's
+    /// receipt map) rather than `pyde_getReceipt` (the consensus
+    /// store's long-lived archive). The hot map populates the moment
+    /// a tx commits; the consensus store may lag — especially on
+    /// devnet, where it can stay empty until a snapshot rolls.
     ///
     /// # Errors
     /// - [`SdkError::Timeout`] when the deadline elapses without a
     ///   receipt.
-    /// - Any error surfaced by the underlying `get_receipt` call.
+    /// - Any error surfaced by the underlying
+    ///   `get_transaction_receipt` call.
     pub async fn wait_for_receipt(&self) -> Result<Receipt, SdkError> {
         let deadline = std::time::Instant::now() + self.timeout;
         loop {
-            if let Some(receipt) = self.provider.get_receipt(&self.hash).await? {
+            if let Some(receipt) = self.provider.get_transaction_receipt(&self.hash).await? {
                 return Ok(receipt);
             }
             if std::time::Instant::now() >= deadline {
