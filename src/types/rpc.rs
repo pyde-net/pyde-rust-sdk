@@ -1,65 +1,91 @@
-//! RPC response shapes — receipts, logs, filters, wave headers.
+//! JSON-RPC wire shapes — receipts, events, call inputs, simulation,
+//! node info, log pagination.
 //!
 //! These types ride the JSON-RPC wire, not Borsh. Numeric fields
-//! arrive as `0x`-prefixed hex strings per Ethereum-style JSON-RPC
-//! convention; the inherent accessor methods decode them lazily.
+//! arrive as `0x`-prefixed hex strings per Ethereum-style convention;
+//! the accessor methods decode them lazily.
+//!
+//! All shapes are byte-identical to what
+//! `engine/crates/node/src/rpc.rs` emits — wave-not-block field
+//! names included.
 
 use serde::{Deserialize, Serialize};
 
 use super::Address;
 
+// ── Receipt + Event ────────────────────────────────────────────
+
+/// Outcome class for a committed transaction.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiptStatus {
+    /// Tx executed without reverting or running out of gas.
+    Success,
+    /// Tx reverted via `pyde::revert(...)` or an executor error.
+    Reverted,
+    /// Tx hit its `gas_limit`.
+    OutOfGas,
+}
+
 /// Receipt for a committed transaction.
 ///
 /// Returned by `pyde_getReceipt` and `pyde_getTransactionReceipt`.
-/// All numeric fields are hex strings on the wire — use the
-/// accessor methods to get typed values.
+/// Numeric fields are `0x`-prefixed hex on the wire — accessors
+/// (`gas`, `fee_paid_quanta`, `tx_index_u32`, `wave_id_u64`) decode
+/// lazily.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Receipt {
     /// `0x`-prefixed tx hash this receipt belongs to.
     pub tx_hash: String,
-    /// `true` iff the tx executed without reverting or running out
-    /// of gas.
-    pub success: bool,
+    /// Wave id at which the tx committed, hex.
+    pub wave_id: String,
+    /// Position within the wave, hex.
+    pub tx_index: String,
+    /// Outcome class.
+    pub status: ReceiptStatus,
     /// Gas actually charged, hex.
     pub gas_used: String,
-    /// Effective gas price (base_fee at commit time), hex.
-    pub effective_gas: String,
-    /// Total fee paid in quanta, hex.
+    /// Total fee paid in quanta, hex. Pyde v1 has no priority tips —
+    /// `fee_paid = gas_used × base_fee_at_commit`.
     pub fee_paid: String,
-    /// Portion of the fee burned per Pyde's EIP-1559 model, hex.
-    pub fee_burned: String,
-    /// Portion of the fee paid to the validator pool, hex.
-    pub fee_validator: String,
     /// Return data from `pyde::return(...)`, hex. Empty for
     /// non-success outcomes that didn't explicitly return.
     #[serde(default)]
     pub return_data: String,
-    /// Event logs emitted during execution (empty for reverts).
+    /// Events emitted during execution (empty for reverts).
     #[serde(default)]
-    pub logs: Vec<Log>,
+    pub events: Vec<Event>,
 }
 
 impl Receipt {
-    /// Decode `gas_used` to `u64`. Returns 0 on malformed input —
-    /// the receipt itself was already validated as deserializable
-    /// from a node response, so malformed hex here would have
-    /// surfaced as [`crate::SdkError::InvalidResponse`].
+    /// `true` iff `status == Success`.
+    #[must_use]
+    pub fn is_success(&self) -> bool {
+        matches!(self.status, ReceiptStatus::Success)
+    }
+
+    /// Decode `gas_used` to `u64`.
     #[must_use]
     pub fn gas(&self) -> u64 {
         u64::from_str_radix(self.gas_used.trim_start_matches("0x"), 16).unwrap_or(0)
-    }
-
-    /// Decode `effective_gas` to `u128`.
-    #[must_use]
-    pub fn effective_gas_price(&self) -> u128 {
-        u128::from_str_radix(self.effective_gas.trim_start_matches("0x"), 16).unwrap_or(0)
     }
 
     /// Decode `fee_paid` to `u128` quanta.
     #[must_use]
     pub fn fee_paid_quanta(&self) -> u128 {
         u128::from_str_radix(self.fee_paid.trim_start_matches("0x"), 16).unwrap_or(0)
+    }
+
+    /// Decode `wave_id` to `u64`.
+    #[must_use]
+    pub fn wave_id_u64(&self) -> u64 {
+        u64::from_str_radix(self.wave_id.trim_start_matches("0x"), 16).unwrap_or(0)
+    }
+
+    /// Decode `tx_index` to `u32`.
+    #[must_use]
+    pub fn tx_index_u32(&self) -> u32 {
+        u32::from_str_radix(self.tx_index.trim_start_matches("0x"), 16).unwrap_or(0)
     }
 
     /// Decode `return_data` as raw bytes.
@@ -70,9 +96,7 @@ impl Receipt {
     }
 
     /// For `Deploy` receipts, the derived contract address.
-    ///
-    /// Returns `None` if the return data isn't exactly 32 bytes —
-    /// i.e. this wasn't a Deploy receipt.
+    /// Returns `None` if the return data isn't exactly 32 bytes.
     #[must_use]
     pub fn contract_address(&self) -> Option<Address> {
         let bytes = self.return_bytes();
@@ -86,17 +110,24 @@ impl Receipt {
     }
 }
 
-/// One event log entry on a [`Receipt`].
+/// One event emitted during transaction execution.
 ///
-/// `topics[0]` is the event signature hash by convention; later
-/// topics are indexed parameters (max 4 topics per event per
-/// HOST_FN_ABI §15.3). `data` carries the non-indexed payload,
-/// hex-encoded.
+/// Pyde-native shape — note `contract_addr` (not `address` per the
+/// Ethereum convention) and the wave/tx/event triple positional
+/// identity. `topics` are 32-byte hashes per
+/// [HOST_FN_ABI §15.3](https://book.pyde.network/companion/HOST_FN_ABI_SPEC#§15.3);
+/// `data` is the non-indexed payload bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Log {
+pub struct Event {
+    /// Wave id where the event was emitted, hex.
+    pub wave_id: String,
+    /// Position of the emitting tx within the wave, hex.
+    pub tx_index: String,
+    /// Position of this event within the tx, hex.
+    pub event_index: String,
     /// Address of the contract that emitted the event, hex.
-    pub address: String,
-    /// Topic hashes — `topics[0]` is the event signature.
+    pub contract_addr: String,
+    /// 32-byte topic hashes. `topics[0]` is the event signature.
     #[serde(default)]
     pub topics: Vec<String>,
     /// Non-indexed event payload bytes, hex.
@@ -104,53 +135,259 @@ pub struct Log {
     pub data: String,
 }
 
-/// Filter for querying historical event logs via `pyde_getLogs`.
+impl Event {
+    /// Decode `wave_id` to `u64`.
+    #[must_use]
+    pub fn wave_id_u64(&self) -> u64 {
+        u64::from_str_radix(self.wave_id.trim_start_matches("0x"), 16).unwrap_or(0)
+    }
+
+    /// Decode `tx_index` to `u32`.
+    #[must_use]
+    pub fn tx_index_u32(&self) -> u32 {
+        u32::from_str_radix(self.tx_index.trim_start_matches("0x"), 16).unwrap_or(0)
+    }
+
+    /// Decode `event_index` to `u32`.
+    #[must_use]
+    pub fn event_index_u32(&self) -> u32 {
+        u32::from_str_radix(self.event_index.trim_start_matches("0x"), 16).unwrap_or(0)
+    }
+
+    /// Decode `data` as raw bytes.
+    #[must_use]
+    pub fn data_bytes(&self) -> Vec<u8> {
+        hex::decode(self.data.trim_start_matches("0x")).unwrap_or_default()
+    }
+}
+
+// ── Account info ───────────────────────────────────────────────
+
+/// Account record returned by `pyde_getAccount`.
 ///
-/// Omitted fields mean "no constraint on this dimension." `topics`
-/// mirrors EVM semantics: each slot is either `None` (match any
-/// topic at that position) or `Some(vec)` (OR-match against any
-/// topic in the list).
+/// Fields use snake_case on the wire (matching the engine's JSON
+/// output). The `account_type` is `"eoa"`, `"contract"`, or
+/// `"system"` per Ch 11 §11.3.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountInfo {
+    /// Account address, hex.
+    pub address: String,
+    /// `"eoa"`, `"contract"`, or `"system"`.
+    pub account_type: String,
+    /// Balance in quanta, hex.
+    pub balance: String,
+    /// Next accepted nonce (window base + trailing-ones offset).
+    pub nonce: u64,
+    /// Poseidon2 code hash, hex. Zeroed for non-contracts.
+    pub code_hash: String,
+    /// Contract storage root, hex. Zeroed for EOAs.
+    pub state_root: String,
+}
+
+impl AccountInfo {
+    /// Decode `balance` to `u128` quanta.
+    #[must_use]
+    pub fn balance_quanta(&self) -> u128 {
+        u128::from_str_radix(self.balance.trim_start_matches("0x"), 16).unwrap_or(0)
+    }
+
+    /// `true` iff this is a contract account.
+    #[must_use]
+    pub fn is_contract(&self) -> bool {
+        self.account_type == "contract"
+    }
+}
+
+// ── Node info ──────────────────────────────────────────────────
+
+/// Node identity returned by `pyde_getNodeInfo`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    /// Libp2p peer id, hex.
+    pub peer_id: String,
+    /// Validator FALCON-512 pubkey, hex.
+    pub falcon_pubkey: String,
+    /// Multiaddrs the node listens on.
+    #[serde(default)]
+    pub listen_addrs: Vec<String>,
+    /// Agent version string (e.g. `"pyde-node/0.1.0"`).
+    pub agent_version: String,
+    /// Wire-protocol version string (e.g. `"pyde/1"`).
+    pub protocol_version: String,
+}
+
+// ── Call + simulation ──────────────────────────────────────────
+
+/// Request body for `pyde_call`.
+///
+/// `data` MUST be the Borsh-encoded
+/// [`pyde_engine_types::CallPayload`] shape — `{function, calldata}`.
+/// The SDK's contract layer (T10) populates this automatically when
+/// dispatching typed calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallRequest {
+    /// Target contract address, hex.
+    pub to: String,
+    /// Borsh-encoded `CallPayload`, hex.
+    pub data: String,
+    /// Caller address attribution. Optional; defaults to zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// PYDE value attached to the call, quanta hex. Optional.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Gas budget for the view call, hex. Optional; node default
+    /// is 10,000,000 if omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas: Option<String>,
+}
+
+/// Result of `pyde_simulateTransaction` — receipt-that-would-be plus
+/// the observed access list.
+///
+/// `receipt: None` means the executor routed to a no-op (system tx
+/// type, or `Standard` to an address with no code).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationResult {
+    /// Predicted receipt, or `None` for routed-to-no-op.
+    #[serde(default)]
+    pub receipt: Option<SimulationReceipt>,
+    /// Access pattern observed during simulation. Use to populate
+    /// the real submission's `access_list` so the scheduler can
+    /// schedule the tx in parallel.
+    pub access_list: SimulationAccessList,
+}
+
+/// Simulation receipt — a stripped subset of the on-chain
+/// [`Receipt`] (no events, no wave/tx position yet).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationReceipt {
+    /// `"Success"` | `"Reverted"` | `"OutOfGas"` (note: simulation
+    /// status uses Title-cased strings, not the snake_case the
+    /// post-commit receipt uses).
+    pub status: String,
+    /// Gas charged, hex.
+    pub gas_used: String,
+    /// Fee paid, quanta hex.
+    pub fee_paid: String,
+    /// Return data, hex.
+    pub return_data: String,
+}
+
+/// Access pattern observed during simulation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationAccessList {
+    /// Slots read. Each entry may carry a `tx_index`/`attempt`
+    /// observation when the read collided with a concurrent write.
+    pub reads: Vec<SimulationRead>,
+    /// Slots written, as 32-byte hex slot hashes.
+    pub writes: Vec<String>,
+}
+
+/// One observed read during simulation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationRead {
+    /// 32-byte slot hash, hex.
+    pub slot: String,
+    /// Version observed for this slot, or `None` if the read was
+    /// from the committed base.
+    #[serde(default)]
+    pub observed_version: Option<SimulationReadVersion>,
+}
+
+/// Concurrent-write attribution attached to a [`SimulationRead`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationReadVersion {
+    /// Index of the writing tx in the wave.
+    pub tx_index: u32,
+    /// Attempt number (Block-STM retry counter).
+    pub attempt: u32,
+}
+
+// ── Log filter + page ──────────────────────────────────────────
+
+/// Filter for `pyde_getLogs` and `subscribe_logs`.
+///
+/// Multi-contract OR + position-sensitive topic
+/// AND-across-positions, OR-within-position (mirrors EVM semantics).
+/// Empty / unset means "no constraint."
+///
+/// The wave-range and cursor fields apply only to `pyde_getLogs`;
+/// the streaming subscription ignores them (subscriptions are
+/// always tip-following).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LogFilter {
+    /// Lower-bound wave id, hex. Default `"0x0"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_wave: Option<String>,
+    /// Upper-bound wave id, hex. Default = current wave.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_wave: Option<String>,
+    /// OR-match: contract addresses, hex.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contracts: Vec<String>,
+    /// AND-across-positions, OR-within-position. Each position is
+    /// either `None` (match any) or `Some(vec)` (match one of the
+    /// listed 32-byte topic hashes).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<Option<Vec<String>>>,
+    /// Resume from a prior page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<LogCursor>,
+    /// Max entries per page (server-capped at 5000; default 500).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+}
+
+/// Cursor identifying a specific event for pagination resume.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogCursor {
+    /// Wave id, hex.
+    pub wave_id: String,
+    /// Tx index, hex.
+    pub tx_index: String,
+    /// Event index, hex.
+    pub event_index: String,
+}
+
+/// Page returned by `pyde_getLogs`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogPage {
+    /// Matching events.
+    #[serde(default)]
+    pub entries: Vec<Event>,
+    /// Resume cursor — `None` when the result fits in one page.
+    #[serde(default)]
+    pub next_cursor: Option<LogCursor>,
+}
+
+// ── pyde_getEvents request shape ───────────────────────────────
+
+/// Simple filter for `pyde_getEvents` (no pagination, no topic
+/// matching — for that, use [`LogFilter`] + `pyde_getLogs`).
+///
+/// All fields optional. Server defaults: full history, all
+/// contracts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LogFilter {
-    /// Lower-bound wave id, inclusive.
+pub struct EventFilter {
+    /// Lower-bound wave id, hex.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_block: Option<u64>,
-    /// Upper-bound wave id, inclusive.
+    pub from_wave: Option<String>,
+    /// Upper-bound wave id, hex.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub to_block: Option<u64>,
-    /// Filter to logs emitted by this contract address.
+    pub to_wave: Option<String>,
+    /// Single contract address, hex. Use [`LogFilter::contracts`]
+    /// for multi-contract.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub address: Option<String>,
-    /// Topic filters — see struct docs for semantics.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub topics: Option<Vec<Option<Vec<String>>>>,
+    pub contract: Option<String>,
 }
 
-/// Header info for a single wave (Pyde's equivalent of a "block"),
-/// returned by `pyde_getWave`.
-///
-/// Field shape preliminary — T9 will reconcile against the running
-/// node's wire format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlockHeader {
-    /// Wave id (block number in Ethereum vocabulary), hex.
-    pub slot: String,
-    /// Wall-clock commit timestamp, hex (seconds since Unix epoch).
-    pub timestamp: String,
-    /// Wave proposer address, hex.
-    pub proposer: String,
-    /// Post-commit JMT state root, hex.
-    #[serde(default)]
-    pub state_root: String,
-    /// Number of transactions committed in this wave, hex.
-    #[serde(default)]
-    pub tx_count: String,
-}
+// ── Call overrides + fee data ──────────────────────────────────
 
 /// Optional overrides for [`crate::Provider::call`] and
-/// [`crate::Provider::simulate_transaction`].
+/// [`crate::Provider::simulate_transaction`] when building the
+/// [`CallRequest`] from a typed contract call.
 ///
 /// All fields default to "use wallet/network defaults." Set
 /// explicitly to simulate from a non-default sender, override the
@@ -166,8 +403,7 @@ pub struct CallOverrides {
     pub gas_limit: Option<u64>,
 }
 
-/// Current fee snapshot from the network — returned by future
-/// `Provider::get_fee_data` (T9).
+/// Current fee snapshot from the network.
 ///
 /// Pyde follows the EIP-1559 base-fee model but does NOT have
 /// user-set priority tips in v1 (Ch 11 §11.6). Both fields carry
@@ -181,27 +417,91 @@ pub struct FeeData {
     pub base_fee: u128,
 }
 
+// ── Wave header ────────────────────────────────────────────────
+
+/// Header info for a committed wave, returned by `pyde_getWave`.
+///
+/// Field shape is opaque-ish — the engine emits the full
+/// `WaveRecord` Borsh-shaped JSON; advanced callers should
+/// `serde_json::from_value` if they need typed access to nested
+/// fields. v1 surfaces the common header fields for ergonomic use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WaveHeader {
+    /// Wave id (a.k.a. "block number" in Ethereum vocabulary), hex.
+    #[serde(default)]
+    pub wave_id: Option<String>,
+    /// Wall-clock commit timestamp, hex (seconds since Unix epoch).
+    #[serde(default)]
+    pub timestamp: Option<String>,
+    /// Wave proposer address, hex.
+    #[serde(default)]
+    pub proposer: Option<String>,
+    /// Post-commit JMT state root, hex.
+    #[serde(default)]
+    pub state_root: Option<String>,
+    /// Number of transactions committed in this wave, hex.
+    #[serde(default)]
+    pub tx_count: Option<String>,
+}
+
+/// Alias for backward compatibility with the pre-pivot naming.
+///
+/// `BlockHeader` and `WaveHeader` refer to the same wire shape;
+/// the project renamed "block" → "wave" but downstream consumers
+/// may still use the older name.
+pub type BlockHeader = WaveHeader;
+
+// ── Log alias for backward-compat ──────────────────────────────
+
+/// Alias for backward compatibility with the pre-pivot naming.
+///
+/// Pyde events are NOT Ethereum "logs" — they're a Pyde-native
+/// type ([`Event`]) with wave/tx/event positional identity. New
+/// code should use [`Event`] directly.
+pub type Log = Event;
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 
+    // ── Receipt decoding ────────────────────────────────────────
+
     #[test]
-    fn receipt_decodes_hex_fields() {
+    fn receipt_decodes_engine_shape() {
         let raw = r#"{
-            "txHash": "0xdead",
-            "success": true,
-            "gasUsed": "0x5208",
-            "effectiveGas": "0x3b9aca00",
-            "feePaid": "0x12345",
-            "feeBurned": "0x0",
-            "feeValidator": "0x0"
+            "tx_hash": "0xdead",
+            "wave_id": "0x5",
+            "tx_index": "0x2",
+            "status": "success",
+            "gas_used": "0x5208",
+            "fee_paid": "0x12345",
+            "return_data": "0x",
+            "events": []
         }"#;
         let r: Receipt = serde_json::from_str(raw).unwrap();
         assert_eq!(r.gas(), 0x5208);
-        assert_eq!(r.effective_gas_price(), 0x3b9aca00);
         assert_eq!(r.fee_paid_quanta(), 0x12345);
+        assert_eq!(r.wave_id_u64(), 5);
+        assert_eq!(r.tx_index_u32(), 2);
+        assert!(r.is_success());
+    }
+
+    #[test]
+    fn receipt_handles_status_variants() {
+        let payload = |status: &str| {
+            format!(
+                r#"{{ "tx_hash": "0x00", "wave_id": "0x0", "tx_index": "0x0",
+                  "status": "{status}", "gas_used": "0x0", "fee_paid": "0x0" }}"#
+            )
+        };
+        let s: Receipt = serde_json::from_str(&payload("success")).unwrap();
+        let r: Receipt = serde_json::from_str(&payload("reverted")).unwrap();
+        let o: Receipt = serde_json::from_str(&payload("out_of_gas")).unwrap();
+        assert_eq!(s.status, ReceiptStatus::Success);
+        assert_eq!(r.status, ReceiptStatus::Reverted);
+        assert_eq!(o.status, ReceiptStatus::OutOfGas);
     }
 
     #[test]
@@ -209,30 +509,112 @@ mod tests {
         let bytes = [0xAB; 32];
         let r = Receipt {
             tx_hash: String::new(),
-            success: true,
+            wave_id: "0x0".into(),
+            tx_index: "0x0".into(),
+            status: ReceiptStatus::Success,
             gas_used: String::new(),
-            effective_gas: String::new(),
             fee_paid: String::new(),
-            fee_burned: String::new(),
-            fee_validator: String::new(),
             return_data: format!("0x{}", hex::encode(bytes)),
-            logs: vec![],
+            events: vec![],
         };
         let addr = r.contract_address().unwrap();
         assert_eq!(addr.as_bytes(), &bytes);
     }
 
+    // ── Event decoding ──────────────────────────────────────────
+
     #[test]
-    fn log_filter_serializes_omits_none() {
+    fn event_decodes_engine_shape() {
+        let raw = r#"{
+            "wave_id": "0x10",
+            "tx_index": "0x3",
+            "event_index": "0x1",
+            "contract_addr": "0xabcd",
+            "topics": ["0x1111", "0x2222"],
+            "data": "0xbeef"
+        }"#;
+        let e: Event = serde_json::from_str(raw).unwrap();
+        assert_eq!(e.wave_id_u64(), 0x10);
+        assert_eq!(e.tx_index_u32(), 3);
+        assert_eq!(e.event_index_u32(), 1);
+        assert_eq!(e.topics.len(), 2);
+        assert_eq!(e.data_bytes(), vec![0xBE, 0xEF]);
+    }
+
+    // ── AccountInfo decoding ────────────────────────────────────
+
+    #[test]
+    fn account_info_decodes_engine_shape() {
+        let raw = r#"{
+            "address": "0xa1",
+            "account_type": "eoa",
+            "balance": "0x3b9aca00",
+            "nonce": 7,
+            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "state_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        }"#;
+        let a: AccountInfo = serde_json::from_str(raw).unwrap();
+        assert_eq!(a.balance_quanta(), 1_000_000_000);
+        assert_eq!(a.nonce, 7);
+        assert!(!a.is_contract());
+    }
+
+    // ── LogFilter serialisation ────────────────────────────────
+
+    #[test]
+    fn log_filter_skips_empties() {
         let f = LogFilter {
-            from_block: Some(100),
-            to_block: None,
-            address: None,
-            topics: None,
+            from_wave: Some("0x5".into()),
+            contracts: vec!["0xabcd".into()],
+            ..Default::default()
         };
         let json = serde_json::to_string(&f).unwrap();
-        assert!(json.contains("fromBlock"));
-        assert!(!json.contains("toBlock"));
-        assert!(!json.contains("address"));
+        assert!(json.contains("from_wave"));
+        assert!(json.contains("contracts"));
+        assert!(!json.contains("to_wave"));
+        assert!(!json.contains("topics"));
+        assert!(!json.contains("cursor"));
+        assert!(!json.contains("limit"));
+    }
+
+    // ── Simulation shape ───────────────────────────────────────
+
+    #[test]
+    fn simulation_result_round_trip() {
+        let raw = r#"{
+            "receipt": {
+                "status": "Success",
+                "gas_used": "0x5208",
+                "fee_paid": "0x12345",
+                "return_data": "0x"
+            },
+            "access_list": {
+                "reads": [
+                    { "slot": "0xaa", "observed_version": null }
+                ],
+                "writes": ["0xbb"]
+            }
+        }"#;
+        let s: SimulationResult = serde_json::from_str(raw).unwrap();
+        let receipt = s.receipt.unwrap();
+        assert_eq!(receipt.status, "Success");
+        assert_eq!(s.access_list.reads.len(), 1);
+        assert_eq!(s.access_list.writes.len(), 1);
+    }
+
+    // ── EventFilter ──────────────────────────────────────────
+
+    #[test]
+    fn event_filter_uses_camel_case() {
+        let f = EventFilter {
+            from_wave: Some("0x0".into()),
+            to_wave: Some("0xff".into()),
+            contract: None,
+        };
+        let json = serde_json::to_string(&f).unwrap();
+        // Engine `pyde_getEvents` uses camelCase wire names.
+        assert!(json.contains("fromWave"));
+        assert!(json.contains("toWave"));
+        assert!(!json.contains("contract\""));
     }
 }

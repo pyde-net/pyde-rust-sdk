@@ -51,10 +51,14 @@ pub mod ws;
 // ── Top-level re-exports — what 95% of users reach for. ──────────────
 
 pub use error::{Result, SdkError};
+pub use provider::{HttpProvider, HttpTransport, PendingTx, Provider, RootProvider, Transport};
 pub use signer::{LocalSigner, Signer};
 pub use tx::TxBuilder;
 pub use types::{
-    AccessEntry, AccessType, AccountType, Address, AuthKeys, BlockHeader, CallOverrides,
-    FalconPubkey, FalconSignature, FeeData, FeePayer, Log, LogFilter, Receipt, Tx, TxHash, TxType,
+    AccessEntry, AccessType, AccountInfo, AccountType, Address, AuthKeys, BlockHeader,
+    CallOverrides, CallPayload, CallRequest, Event, EventFilter, FalconPubkey, FalconSignature,
+    FeeData, FeePayer, Log, LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus,
+    SimulationResult, Tx, TxHash, TxType, WaveHeader,
 };
 pub use wallet::{Keystore, Wallet};
+pub use ws::{Subscription, WsProvider, WsTransport};
