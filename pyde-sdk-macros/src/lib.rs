@@ -498,7 +498,7 @@ fn build_function_init_tokens(functions: &[JsonFunction]) -> syn::Result<Vec<Tok
     for f in functions {
         let name = &f.name;
         let attrs = f.attrs;
-        let selector_bytes = selector_fnv1a_4(name.as_bytes());
+        let selector_bytes = selector_blake3_4(name.as_bytes());
         let s0 = selector_bytes[0];
         let s1 = selector_bytes[1];
         let s2 = selector_bytes[2];
@@ -601,24 +601,16 @@ fn build_function_tokens(f: &JsonFunction) -> syn::Result<TokenStream2> {
     }
 }
 
-/// Compute a 4-byte function selector via FNV-1a.
+/// Compute a 4-byte function selector — `Blake3(name)[..4]` per
+/// [HOST_FN_ABI §3.7.4](https://book.pyde.network/companion/HOST_FN_ABI_SPEC#374-function-selector).
 ///
-/// **Note:** Pyde dispatches by function NAME, not by selector
-/// (HOST_FN_ABI §3.7.4). The 4-byte selector is recorded in the
-/// ABI for cross-tooling parity (so explorers can show it) but
-/// the chain never verifies it. The canonical algorithm per
-/// `companion/HOST_FN_ABI_SPEC.md` is `Blake3(name)[..4]`; the
-/// macro can't easily pull `blake3` as a proc-macro dep (would
-/// duplicate the codegen-side compile), and the spec's
-/// dispatch contract makes the wire value here purely
-/// cosmetic — so we use a simple FNV-1a fold that's
-/// deterministic and round-trips cleanly through the otigen
-/// canonical layer.
-fn selector_fnv1a_4(name: &[u8]) -> [u8; 4] {
-    let mut hash: u32 = 0x811C_9DC5;
-    for &b in name {
-        hash ^= b as u32;
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    hash.to_le_bytes()
+/// Pyde dispatches by function NAME, not by selector — the chain
+/// never verifies the selector field at call time. We compute the
+/// canonical value anyway so explorers and indexers that
+/// cross-check `selector == Blake3(name)[..4]` against the ABI
+/// see a clean match.
+fn selector_blake3_4(name: &[u8]) -> [u8; 4] {
+    let hash = blake3::hash(name);
+    let bytes = hash.as_bytes();
+    [bytes[0], bytes[1], bytes[2], bytes[3]]
 }
