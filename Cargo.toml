@@ -21,7 +21,7 @@ async-trait = "0.1"
 # ── Serialization ────────────────────────────────────────────────────
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-borsh = "1"           # canonical Pyde wire encoding — matches engine byte-for-byte
+borsh = { version = "1", features = ["derive"] }  # canonical Pyde wire encoding — matches engine byte-for-byte
 hex = "0.4"
 
 # ── Encrypted keystore (T8) ──────────────────────────────────────────
