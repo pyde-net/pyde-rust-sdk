@@ -99,7 +99,7 @@ async fn full_pipeline_end_to_end_against_mock_node() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getReceipt"))
+        .and(match_method("pyde_getTransactionReceipt"))
         .respond_with(ok(json!({
             "tx_hash": expected_hash_hex,
             "wave_id": "0x10",

@@ -360,15 +360,17 @@ async fn pending_tx_waits_for_receipt() {
 
     // First two polls return null (mempool); third returns the
     // receipt. Mount the null stub first with up_to_n_times(2) so
-    // the success stub fires last.
+    // the success stub fires last. PendingTx polls
+    // `pyde_getTransactionReceipt` (hot state map), not
+    // `pyde_getReceipt` (consensus archive).
     Mock::given(method("POST"))
-        .and(match_method("pyde_getReceipt"))
+        .and(match_method("pyde_getTransactionReceipt"))
         .respond_with(ok_response(Value::Null))
         .up_to_n_times(2)
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getReceipt"))
+        .and(match_method("pyde_getTransactionReceipt"))
         .respond_with(ok_response(json!({
             "tx_hash": format!("0x{}", hex::encode(hash.as_bytes())),
             "wave_id": "0x1",
@@ -396,7 +398,7 @@ async fn pending_tx_times_out() {
     let (provider, server) = provider_with_server().await;
     let hash = TxHash::new([0xEF; 32]);
     Mock::given(method("POST"))
-        .and(match_method("pyde_getReceipt"))
+        .and(match_method("pyde_getTransactionReceipt"))
         .respond_with(ok_response(Value::Null))
         .mount(&server)
         .await;

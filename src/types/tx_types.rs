@@ -62,8 +62,8 @@ pub enum TxType {
     /// carry the call target, value, and calldata.
     Standard = 0x00,
     /// `0x01` — Contract deployment. `to == Address::ZERO`; `data`
-    /// holds the init bytecode (WASM with the `pyde.abi` custom
-    /// section).
+    /// holds the Borsh-encoded [`super::DeployData`] envelope
+    /// (name, WASM bytes, contract type, init calldata).
     Deploy = 0x01,
     // 0x02 — reserved-as-vacant (Batch removed pre-mainnet).
     /// `0x03` — Lock `>= MIN_VALIDATOR_STAKE` (10,000 PYDE) and
@@ -191,7 +191,7 @@ pub struct AccessEntry {
 /// | tx_type              | `data` interpretation                                |
 /// |----------------------|------------------------------------------------------|
 /// | `Standard`           | calldata for the function being called               |
-/// | `Deploy`             | init WASM bytecode with `pyde.abi` custom section    |
+/// | `Deploy`             | Borsh-encoded [`DeployData`] envelope                |
 /// | `StakeDeposit`       | 897-byte FALCON validator pubkey                     |
 /// | `RotateValidatorKeys`| the new 897-byte FALCON pubkey                       |
 /// | `Slash`              | serialised evidence per `SLASHING.md`                |
@@ -309,6 +309,36 @@ pub struct CallPayload {
     /// them via `pyde::calldata_size` + `pyde::calldata_copy`;
     /// encoding is contract-defined.
     pub calldata: Vec<u8>,
+}
+
+/// Borsh-encoded payload carried in `Tx::data` when
+/// `tx_type == TxType::Deploy`.
+///
+/// Mirrors `engine/crates/types/src/deploy.rs::DeployData`
+/// byte-for-byte. The deployed contract's address is derived from
+/// `name` via [`crate::types::Address::from_contract_name`] —
+/// `Poseidon2("pyde-contract:" || name)` — so the name is the
+/// address-derivation input. The on-chain name registry rejects
+/// duplicate names at deploy time.
+///
+/// All fields are wire-load-bearing — adding a field is a hard
+/// fork of the deploy envelope.
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+pub struct DeployData {
+    /// ENS-style contract name. Registered in the on-chain name
+    /// registry; doubles as the address-derivation input
+    /// (`Poseidon2("pyde-contract:" || name)`).
+    pub name: String,
+    /// The contract's WASM binary with the `pyde.abi` custom
+    /// section embedded per HOST_FN_ABI §3.7.
+    pub wasm_bytes: Vec<u8>,
+    /// Contract-vs-parachain discriminant. Drives the host-fn
+    /// import allowlist (contracts get §7 only; parachains
+    /// additionally get §8).
+    pub contract_type: super::abi::ContractType,
+    /// Calldata passed to the constructor. Empty if the contract
+    /// has no constructor or the constructor takes no arguments.
+    pub init_calldata: Vec<u8>,
 }
 
 // Internal test-only accessor; placed before the `#[cfg(test)] mod
