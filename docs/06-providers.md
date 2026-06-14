@@ -5,32 +5,28 @@
 ---
 
 A `Provider` is the SDK's RPC client. Pick a transport
-(`HttpTransport` or `WsTransport`), wrap it in `RootProvider`,
-hand it out as an `Arc<dyn Provider>` to anything that needs to
-talk to the chain.
+(`HttpTransport` or `WsTransport`), wrap it in `RootProvider` /
+`WsProvider`, hand it out as an `Arc<dyn Provider>` to anything
+that needs to talk to the chain.
 
-## Quickstart
+## Table of contents
 
-```rust,no_run
-use std::sync::Arc;
-use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
-use pyde_rust_sdk::Provider;
+- [6.1 Transports](#61-transports)
+- [6.2 Building a provider](#62-building-a-provider)
+- [6.3 The `Provider` trait — all 23 methods](#63-the-provider-trait--all-23-methods)
+- [6.4 Calling read-only contract methods](#64-calling-read-only-contract-methods)
+- [6.5 Simulating](#65-simulating)
+- [6.6 Retry policy](#66-retry-policy)
+- [6.7 `PendingTx`](#67-pendingtx)
+- [6.8 Custom transports](#68-custom-transports)
 
-# async fn run() -> pyde_rust_sdk::Result<()> {
-let transport = HttpTransport::new("http://127.0.0.1:8545")?;
-let provider = Arc::new(RootProvider::new(transport));
+---
 
-let chain_id = provider.chain_id().await?;
-let wave_id = provider.wave_id().await?;
-println!("chain {chain_id}, head wave {wave_id}");
-# Ok(()) }
-```
-
-## Transports
+## 6.1 Transports
 
 | Transport | URL prefix | Use case |
 |---|---|---|
-| `HttpTransport` | `http://`, `https://` | Simple request/response over reqwest + rustls. The default. |
+| `HttpTransport` | `http://`, `https://` | Simple request/response over reqwest + rustls. The default. Retries transient failures automatically. |
 | `WsTransport` | `ws://`, `wss://` | Persistent socket — needed for subscriptions; also fine for request/response. |
 
 Both implement the `Transport` trait, which `RootProvider`
@@ -40,138 +36,433 @@ generic-parameterises:
 pub struct RootProvider<T: Transport> { /* … */ }
 ```
 
-For WebSocket:
+### `HttpTransport::new(url)`
+
+| | |
+|---|---|
+| Signature | `fn new(url: impl Into<String>) -> Result<HttpTransport, SdkError>` |
+| `url` | `http://` or `https://` endpoint. TLS is via rustls. |
+| Returns | A configured transport with retry defaults from `RetryConfig::default()`. |
+| Errors | `SdkError::InvalidArgument` if `url` is malformed (caught up-front, not on first send). |
+
+```rust,no_run
+use pyde_rust_sdk::provider::HttpTransport;
+# fn run() -> pyde_rust_sdk::Result<()> {
+let t = HttpTransport::new("http://127.0.0.1:9933")?;
+# Ok(()) }
+```
+
+### `WsTransport::connect(url)`
+
+| | |
+|---|---|
+| Signature | `async fn connect(url: &str) -> Result<WsTransport, SdkError>` |
+| `url` | `ws://` or `wss://` endpoint, typically `ws://host:port/ws`. |
+| Returns | An open WebSocket session ready to use. Read loop is spawned in the background. |
+| Errors | `SdkError::Connection` on TCP or WS handshake failure. |
+
+```rust,no_run
+use pyde_rust_sdk::ws::WsTransport;
+# async fn run() -> pyde_rust_sdk::Result<()> {
+let t = WsTransport::connect("ws://127.0.0.1:9933/ws").await?;
+# Ok(()) }
+```
+
+Note the `/ws` path — Pyde serves WebSocket on the same port as
+HTTP under that path.
+
+---
+
+## 6.2 Building a provider
+
+### HTTP
 
 ```rust,no_run
 use std::sync::Arc;
-use pyde_rust_sdk::ws::{WsProvider, WsTransport};
+use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::Provider;
 
 # async fn run() -> pyde_rust_sdk::Result<()> {
-let transport = WsTransport::connect("ws://127.0.0.1:8546").await?;
-let provider = Arc::new(WsProvider::new(transport));
+let transport = HttpTransport::new("http://127.0.0.1:9933")?;
+let provider = Arc::new(RootProvider::new(transport));
 
-// All Provider methods work on WS too — same trait.
+let chain_id = provider.chain_id().await?;
+let wave_id = provider.wave_id().await?;
+println!("chain {chain_id}, head wave {wave_id}");
+# Ok(()) }
+```
+
+**Expected output:**
+```
+chain 31337, head wave 1234
+```
+
+### WebSocket
+
+```rust,no_run
+use std::sync::Arc;
+use pyde_rust_sdk::ws::WsProvider;
+use pyde_rust_sdk::Provider;
+
+# async fn run() -> pyde_rust_sdk::Result<()> {
+let provider = WsProvider::connect_ws("ws://127.0.0.1:9933/ws").await?;
+
+// All Provider methods work on WS — same trait.
 let chain_id = provider.chain_id().await?;
 # Ok(()) }
 ```
 
-## RPC method catalogue
+`WsProvider::connect_ws` is a one-liner that internally calls
+`WsTransport::connect` + wraps it in a provider.
 
-23 methods in total. Naming convention: `pyde_<camelCase>` on
-the wire → `snake_case` on the trait.
+### Convenience alias
 
-### Chain info
+The type alias `HttpProvider = RootProvider<HttpTransport>`
+keeps signatures short:
 
-| Method | Returns | Wire |
-|---|---|---|
-| `chain_id()` | `u64` | `pyde_chainId` |
-| `wave_id()` | `u64` | `pyde_waveId` |
-| `get_node_info()` | `NodeInfo` | `pyde_getNodeInfo` |
-| `get_metrics()` | `Value` | `pyde_getMetrics` |
+```rust,no_run
+use std::sync::Arc;
+use pyde_rust_sdk::provider::{HttpProvider, HttpTransport, RootProvider};
 
-### Account reads
+# fn run() -> pyde_rust_sdk::Result<()> {
+let provider: Arc<HttpProvider> = Arc::new(
+    RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?),
+);
+# Ok(()) }
+```
 
-| Method | Returns | Wire |
-|---|---|---|
-| `get_balance(addr)` | `u128` quanta | `pyde_getBalance` |
-| `get_nonce(addr)` | `u64` (next expected) | `pyde_getNonce` |
-| `get_account(addr)` | `AccountInfo` | `pyde_getAccount` |
-| `get_contract_code(addr)` | `Vec<u8>` (WASM) | `pyde_getContractCode` |
-| `get_storage_slot(slot)` | `Option<Vec<u8>>` | `pyde_getStorageSlot` |
-| `resolve_name(name)` | `Option<Address>` | `pyde_resolveName` |
+---
 
-### Transactions
+## 6.3 The `Provider` trait — all 23 methods
 
-| Method | Returns | Wire |
-|---|---|---|
-| `send_raw_transaction(&tx)` | `TxHash` | `pyde_sendRawTransaction` |
-| `call(&CallRequest)` | `Vec<u8>` | `pyde_call` |
-| `simulate_transaction(&tx)` | `SimulationResult` | `pyde_simulateTransaction` |
-| `get_transaction_receipt(hash)` | `Option<Receipt>` | `pyde_getTransactionReceipt` |
-| `get_receipt(hash)` | `Option<Receipt>` (alias) | `pyde_getReceipt` |
-| `get_tx(hash)` | `Option<Tx>` | `pyde_getTransaction` |
+Naming convention: `pyde_<camelCase>` on the wire → `snake_case`
+on the trait.
 
-### Wave + events
+### Chain info — 4 methods
 
-| Method | Returns | Wire |
-|---|---|---|
-| `get_wave(wave_id)` | `Option<Value>` (raw shape — wallets/explorers parse) | `pyde_getWave` |
-| `get_events(&filter)` | `Vec<Event>` | `pyde_getEvents` |
-| `get_logs(&filter)` | `LogPage` (paginated) | `pyde_getLogs` |
+#### `chain_id()`
 
-### Validators + snapshots
-
-| Method | Returns | Wire |
-|---|---|---|
-| `get_validator(addr)` | `Option<Value>` | `pyde_getValidator` |
-| `get_operator_validators(operator)` | `Vec<Value>` | `pyde_getOperatorValidators` |
-| `get_snapshot()` | `Value` (heavy — full state at head) | `pyde_getSnapshot` |
-| `get_snapshot_manifest()` | `Value` (`wave_id, state_root, chunks…`) | `pyde_getSnapshotManifest` |
-
-`get_snapshot` is heavy — use it only for full state sync. For
-sync-on-the-fly use `get_snapshot_manifest` + fetch chunks
-on-demand (the wire shape is described in the chain spec).
-
-### Convenience helper (on `RootProvider`)
-
-| Method | What |
+| | |
 |---|---|
-| `send_transaction(&tx)` | `send_raw_transaction` + wraps the returned hash in a [`PendingTx`](#pending-transactions) ready to poll. |
+| Signature | `async fn chain_id(&self) -> Result<u64, SdkError>` |
+| Wire | `pyde_chainId` |
+| Returns | The chain id (e.g. `31337` for devnet, custom on mainnet). |
+| Errors | `Connection` / `Rpc` on transport/server failures. |
 
-This is the one method that's NOT on the `Provider` trait —
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
+let id = provider.chain_id().await?;
+println!("{id}");
+# Ok(()) }
+```
+**Expected output:** `31337`
+
+#### `wave_id()`
+
+| | |
+|---|---|
+| Signature | `async fn wave_id(&self) -> Result<u64, SdkError>` |
+| Wire | `pyde_waveId` |
+| Returns | The current head wave number. Increments at least every `--tick-ms` even with no txs. |
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
+let w = provider.wave_id().await?;
+println!("head: {w}");
+# Ok(()) }
+```
+**Expected output:** `head: 1234` (varies)
+
+#### `get_node_info()`
+
+| | |
+|---|---|
+| Signature | `async fn get_node_info(&self) -> Result<NodeInfo, SdkError>` |
+| Wire | `pyde_getNodeInfo` |
+| Returns | `NodeInfo { name, version, peer_id, … }`. |
+
+#### `get_metrics()`
+
+| | |
+|---|---|
+| Signature | `async fn get_metrics(&self) -> Result<Value, SdkError>` |
+| Wire | `pyde_getMetrics` |
+| Returns | Server-defined metrics blob (`serde_json::Value`). Shape varies by node implementation. |
+
+---
+
+### Account reads — 6 methods
+
+#### `get_balance(addr)`
+
+| | |
+|---|---|
+| Signature | `async fn get_balance(&self, addr: &Address) -> Result<u128, SdkError>` |
+| Wire | `pyde_getBalance` |
+| Returns | Account balance in **quanta** (`u128`). Use `format_quanta` to display. |
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::{Provider, util::format_quanta};
+# use pyde_rust_sdk::types::Address;
+# async fn run(provider: Arc<dyn Provider>, addr: Address) -> pyde_rust_sdk::Result<()> {
+let bal = provider.get_balance(&addr).await?;
+println!("{} PYDE ({} quanta)", format_quanta(bal), bal);
+# Ok(()) }
+```
+**Expected output:** `10 PYDE (10000000000 quanta)`
+
+#### `get_nonce(addr)`
+
+| | |
+|---|---|
+| Signature | `async fn get_nonce(&self, addr: &Address) -> Result<u64, SdkError>` |
+| Wire | `pyde_getNonce` |
+| Returns | Next expected nonce (bottom of the 16-slot window). |
+
+#### `get_account(addr)`
+
+| | |
+|---|---|
+| Signature | `async fn get_account(&self, addr: &Address) -> Result<AccountInfo, SdkError>` |
+| Wire | `pyde_getAccount` |
+| Returns | `AccountInfo { account_type, balance, nonce, code_hash, auth_keys, … }`. |
+
+#### `get_contract_code(addr)`
+
+| | |
+|---|---|
+| Signature | `async fn get_contract_code(&self, addr: &Address) -> Result<Vec<u8>, SdkError>` |
+| Wire | `pyde_getContractCode` |
+| Returns | The deployed WASM bytecode. Empty vec if address has no code. |
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::{Provider, abi::extract_abi};
+# use pyde_rust_sdk::types::Address;
+# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
+let wasm = provider.get_contract_code(&Address::from_contract_name("counter")).await?;
+let abi = extract_abi(&wasm)?;
+println!("functions: {}", abi.functions.len());
+# Ok(()) }
+```
+
+#### `get_storage_slot(slot)`
+
+| | |
+|---|---|
+| Signature | `async fn get_storage_slot(&self, slot: &[u8; 32]) -> Result<Option<Vec<u8>>, SdkError>` |
+| Wire | `pyde_getStorageSlot` |
+| Returns | The 32-byte slot's value (variable-length bytes). `None` if the slot has never been written. |
+
+Slots are derived via `Poseidon2(contract_address ‖ field_name ‖
+key)` — contracts use the `pyde.sstore` / `pyde.sload` host fns
+to drive this; the SDK provides the read path for explorers.
+
+#### `resolve_name(name)`
+
+| | |
+|---|---|
+| Signature | `async fn resolve_name(&self, name: &str) -> Result<Option<Address>, SdkError>` |
+| Wire | `pyde_resolveName` |
+| Returns | The address for a registered name, or `None` if unregistered. |
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
+if let Some(addr) = provider.resolve_name("counter").await? {
+    println!("counter at: {addr}");
+} else {
+    println!("no contract named 'counter'");
+}
+# Ok(()) }
+```
+
+---
+
+### Transactions — 6 methods
+
+#### `send_raw_transaction(&tx)`
+
+| | |
+|---|---|
+| Signature | `async fn send_raw_transaction(&self, tx: &Tx) -> Result<TxHash, SdkError>` |
+| Wire | `pyde_sendRawTransaction` |
+| Returns | The canonical `tx_hash`. The tx is now in the mempool; poll for the receipt separately. |
+| Errors | `SdkError::Rpc` for chain-level rejections (bad sig, nonce out of window, insufficient balance, etc.). |
+
+#### `call(&CallRequest)`
+
+| | |
+|---|---|
+| Signature | `async fn call(&self, req: &CallRequest) -> Result<Vec<u8>, SdkError>` |
+| Wire | `pyde_call` |
+| Returns | Raw return bytes from the view-call. Empty vec if the entry returns void. |
+
+See [§6.4](#64-calling-read-only-contract-methods) for the full
+`CallRequest` shape.
+
+#### `simulate_transaction(&tx)`
+
+| | |
+|---|---|
+| Signature | `async fn simulate_transaction(&self, tx: &Tx) -> Result<SimulationResult, SdkError>` |
+| Wire | `pyde_simulateTransaction` |
+| Returns | `SimulationResult { receipt: Option<SimulationReceipt>, access_list: SimulationAccessList }`. |
+
+See [§6.5](#65-simulating).
+
+#### `get_transaction_receipt(hash)`
+
+| | |
+|---|---|
+| Signature | `async fn get_transaction_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>` |
+| Wire | `pyde_getTransactionReceipt` |
+| Returns | The receipt if the tx has committed, `None` if still pending. |
+
+#### `get_receipt(hash)`
+
+| | |
+|---|---|
+| Signature | `async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>` |
+| Wire | `pyde_getReceipt` |
+| Returns | Same as `get_transaction_receipt` — short-name alias. |
+
+`PendingTx::wait_for_receipt` uses this internally.
+
+#### `get_tx(hash)`
+
+| | |
+|---|---|
+| Signature | `async fn get_tx(&self, hash: &TxHash) -> Result<Option<Tx>, SdkError>` |
+| Wire | `pyde_getTransaction` |
+| Returns | The original `Tx` if the chain still has it; nodes may prune old txs. |
+
+---
+
+### Waves + events — 3 methods
+
+#### `get_wave(wave_id)`
+
+| | |
+|---|---|
+| Signature | `async fn get_wave(&self, wave_id: u64) -> Result<Option<Value>, SdkError>` |
+| Wire | `pyde_getWave` |
+| Returns | Raw wave shape (`serde_json::Value`). Wallets / explorers parse it. |
+
+#### `get_events(&filter)`
+
+| | |
+|---|---|
+| Signature | `async fn get_events(&self, filter: &EventFilter) -> Result<Vec<Event>, SdkError>` |
+| Wire | `pyde_getEvents` |
+| Returns | Matching events. No pagination — use `get_logs` for multi-contract / multi-topic queries. |
+
+#### `get_logs(&filter)`
+
+| | |
+|---|---|
+| Signature | `async fn get_logs(&self, filter: &LogFilter) -> Result<LogPage, SdkError>` |
+| Wire | `pyde_getLogs` |
+| Returns | `LogPage { entries: Vec<Event>, next_cursor: Option<LogCursor> }`. |
+
+See [Events §8.2](08-events.md#82-historical-query) for filter
+semantics + pagination.
+
+---
+
+### Validators + snapshots — 4 methods
+
+#### `get_validator(addr)`
+
+| | |
+|---|---|
+| Signature | `async fn get_validator(&self, addr: &Address) -> Result<Option<Value>, SdkError>` |
+| Wire | `pyde_getValidator` |
+| Returns | Validator record shape; `None` if address isn't a validator. |
+
+#### `get_operator_validators(operator)`
+
+| | |
+|---|---|
+| Signature | `async fn get_operator_validators(&self, operator: &Address) -> Result<Vec<Value>, SdkError>` |
+| Wire | `pyde_getOperatorValidators` |
+| Returns | All validators operated by the given account. |
+
+#### `get_snapshot()`
+
+| | |
+|---|---|
+| Signature | `async fn get_snapshot(&self) -> Result<Value, SdkError>` |
+| Wire | `pyde_getSnapshot` |
+| Returns | Full state snapshot at head (large — multi-MB). |
+
+**Heavy.** Use only for full state sync. For light/incremental
+sync use `get_snapshot_manifest` + fetch chunks on demand.
+
+#### `get_snapshot_manifest()`
+
+| | |
+|---|---|
+| Signature | `async fn get_snapshot_manifest(&self) -> Result<Value, SdkError>` |
+| Wire | `pyde_getSnapshotManifest` |
+| Returns | `{wave_id, state_root, chunk_size, chunk_count, chunk_hashes}`. Lightweight. |
+
+---
+
+### Convenience helper (on `RootProvider`, not on the trait) — 1 method
+
+#### `send_transaction(&tx)`
+
+| | |
+|---|---|
+| Signature | `async fn send_transaction(self: &Arc<Self>, tx: &Tx) -> Result<PendingTx, SdkError>` |
+| Wire | `pyde_sendRawTransaction` (then wraps the hash) |
+| Returns | A `PendingTx` ready to poll for the receipt. |
+
+This is the **one** method that's not on the `Provider` trait —
 it lives on the concrete `RootProvider<T>` because returning
 `PendingTx` needs `Arc<Self>`, which trait methods can't carry.
 
-## `PendingTx`
-
-`send_transaction` returns a `PendingTx`:
-
 ```rust,no_run
 # use std::sync::Arc;
 # use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
-# use pyde_rust_sdk::{Provider, Wallet, TxBuilder};
-# async fn run() -> pyde_rust_sdk::Result<()> {
-# let transport = HttpTransport::new("http://127.0.0.1:8545")?;
-# let provider = Arc::new(RootProvider::new(transport));
-# let mut tx = TxBuilder::new().from(pyde_rust_sdk::types::Address::ZERO).build()?;
-let pending = provider.send_transaction(&tx).await?;
-
-println!("submitted: {}", pending.hash());
-
-// Poll until the receipt lands or the timeout / deadline trips.
+# use pyde_rust_sdk::types::Tx;
+# async fn run(tx: &Tx) -> pyde_rust_sdk::Result<()> {
+# let provider = Arc::new(RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?));
+let pending = provider.send_transaction(tx).await?;
 let receipt = pending.wait_for_receipt().await?;
-println!("wave {}, status {:?}", receipt.wave_id_u64(), receipt.status);
 # Ok(()) }
 ```
 
-Tune the polling cadence + deadline:
+---
 
-```rust,no_run
-# use std::sync::Arc;
-# use std::time::Duration;
-# use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
-# use pyde_rust_sdk::{Provider, TxBuilder};
-# async fn run() -> pyde_rust_sdk::Result<()> {
-# let transport = HttpTransport::new("http://127.0.0.1:8545")?;
-# let provider = Arc::new(RootProvider::new(transport));
-# let tx = TxBuilder::new().from(pyde_rust_sdk::types::Address::ZERO).build()?;
-let receipt = provider
-    .send_transaction(&tx).await?
-    .with_poll_interval(Duration::from_millis(50))   // tight loop on devnet
-    .with_timeout(Duration::from_secs(30))           // abort if no receipt
-    .wait_for_receipt().await?;
-# Ok(()) }
-```
-
-`wait_for_receipt` cross-checks the returned receipt's tx_hash
-against the polled hash — guards against a misbehaving RPC node
-mis-routing receipts.
-
-## Calling read-only contract methods
+## 6.4 Calling read-only contract methods
 
 `get_balance` / `get_nonce` go to chain primitives. For arbitrary
 contract view-calls use `call(&CallRequest)`:
+
+### `CallRequest` shape
+
+```rust,ignore
+pub struct CallRequest {
+    pub to: String,                  // contract address, hex
+    pub data: String,                // borsh CallPayload hex
+    pub from: Option<String>,        // attribution address, optional
+    pub value: Option<String>,       // quanta hex, optional
+    pub gas: Option<String>,         // gas budget hex, optional (default 10,000,000)
+}
+```
+
+All fields are string-typed because the wire shape is JSON-RPC
+hex.
+
+### Example — raw call
 
 ```rust,no_run
 # use std::sync::Arc;
@@ -179,8 +470,7 @@ contract view-calls use `call(&CallRequest)`:
 # use pyde_rust_sdk::types::{Address, CallRequest};
 # use pyde_rust_sdk::Provider;
 # async fn run() -> pyde_rust_sdk::Result<()> {
-# let transport = HttpTransport::new("http://127.0.0.1:8545")?;
-# let provider = Arc::new(RootProvider::new(transport));
+# let provider = Arc::new(RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?));
 let calldata = vec![/* selector || borsh-encoded args */];
 let req = CallRequest {
     to: Address::ZERO.to_hex(),
@@ -190,21 +480,44 @@ let req = CallRequest {
     gas: None,
 };
 let result_bytes = provider.call(&req).await?;
+println!("{} bytes returned", result_bytes.len());
 # Ok(()) }
 ```
 
-All string-typed because the wire shape is JSON-RPC hex. The
-[`pyde_abi!` macro](07-contracts.md#typed-wrappers) hides this.
-
-For typed view-calls use the [`pyde_abi!` macro](07-contracts.md#typed-wrappers)
-which generates `async fn get_count(&self) -> Result<u64>`-shaped
+For typed view-calls use the [`pyde_abi!`
+macro](07-contracts.md#73-typed-wrappers-via-pyde_abi) which
+generates `async fn get_count(&self) -> Result<u64>`-shaped
 wrappers and handles the calldata + result decoding for you.
 
-## Simulating
+---
+
+## 6.5 Simulating
 
 `simulate_transaction(&tx)` runs the tx without committing,
 returning gas, observed access list, and any revert reason.
-Used by gas estimation + dry-run UIs:
+
+### `SimulationResult` shape
+
+```rust,ignore
+pub struct SimulationResult {
+    pub receipt: Option<SimulationReceipt>,  // None if routed to no-op
+    pub access_list: SimulationAccessList,   // observed reads/writes
+}
+
+pub struct SimulationReceipt {
+    pub status: String,        // "Success" | "Reverted" | "OutOfGas"
+    pub gas_used: String,      // hex
+    pub fee_paid: String,      // quanta hex
+    pub return_data: String,   // hex
+}
+
+pub struct SimulationAccessList {
+    pub reads: Vec<SimulationRead>,
+    pub writes: Vec<String>,  // 32-byte slot hashes, hex
+}
+```
+
+### Example
 
 ```rust,no_run
 # use std::sync::Arc;
@@ -212,8 +525,7 @@ Used by gas estimation + dry-run UIs:
 # use pyde_rust_sdk::types::Tx;
 # use pyde_rust_sdk::Provider;
 # async fn run(tx: &Tx) -> pyde_rust_sdk::Result<()> {
-# let transport = HttpTransport::new("http://127.0.0.1:8545")?;
-# let provider = Arc::new(RootProvider::new(transport));
+# let provider = Arc::new(RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?));
 let sim = provider.simulate_transaction(tx).await?;
 if let Some(receipt) = sim.receipt {
     println!("estimated gas: {}", receipt.gas_used);
@@ -224,44 +536,231 @@ println!("writes: {} slots", sim.access_list.writes.len());
 # Ok(()) }
 ```
 
+**Expected output:**
+```
+estimated gas: 0x186a0
+status: Success
+reads: 2 slots
+writes: 1 slots
+```
+
 The observed `access_list` is the most useful part for
 performance-sensitive code — feed it back into the real tx's
 `access_list` so the chain's scheduler can parallelise.
 
-## Custom transports
+---
 
-`Transport` is a small trait:
+## 6.6 Retry policy
+
+`HttpTransport` retries transient failures by default —
+connection refused, TCP/TLS errors, request timeouts, and HTTP
+5xx responses. Real JSON-RPC error envelopes (chain rejected
+your tx) are returned immediately, since retrying won't change
+the outcome.
+
+### `RetryConfig` defaults
+
+| Field | Default | Meaning |
+|---|---|---|
+| `max_retries` | `3` | Up to 3 retries after the first attempt (so 4 attempts total). |
+| `base_delay` | `100 ms` | Delay before retry #1. |
+| `max_delay` | `5 s` | Cap on per-attempt delay (after exponential growth + jitter). |
+| `jitter_factor` | `0.25` | Actual delay is uniformly sampled from `delay × (1 ± jitter)`. |
+
+The growth pattern at default settings: 100ms → 200ms → 400ms,
+then cap.
+
+### Customising
+
+```rust,no_run
+use std::time::Duration;
+use pyde_rust_sdk::provider::{HttpTransport, RetryConfig};
+
+# fn run() -> pyde_rust_sdk::Result<()> {
+let transport = HttpTransport::new("http://127.0.0.1:9933")?
+    .with_retry_config(RetryConfig {
+        max_retries: 5,
+        base_delay: Duration::from_millis(50),
+        max_delay: Duration::from_secs(10),
+        jitter_factor: 0.5,
+    });
+# Ok(()) }
+```
+
+### Disabling
+
+If your dapp needs strict first-try-wins semantics:
+
+```rust,no_run
+use pyde_rust_sdk::provider::{HttpTransport, RetryConfig};
+
+# fn run() -> pyde_rust_sdk::Result<()> {
+let transport = HttpTransport::new("http://127.0.0.1:9933")?
+    .with_retry_config(RetryConfig::no_retry());
+# Ok(()) }
+```
+
+### What gets retried vs not
+
+| Error | Retried? |
+|---|---|
+| `Connection refused` | yes |
+| TLS handshake failure | yes |
+| Request timeout | yes |
+| HTTP 502 / 503 / 504 | yes |
+| HTTP 400 / 404 (client errors) | no |
+| JSON-RPC error envelope (chain rejection) | no |
+| Malformed response envelope | no |
+
+---
+
+## 6.7 `PendingTx`
+
+`send_transaction` returns a `PendingTx`:
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
+# use pyde_rust_sdk::types::Tx;
+# async fn run(tx: &Tx) -> pyde_rust_sdk::Result<()> {
+# let provider = Arc::new(RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?));
+let pending = provider.send_transaction(tx).await?;
+
+println!("submitted: {}", pending.hash());
+
+// Poll until the receipt lands or the timeout trips.
+let receipt = pending.wait_for_receipt().await?;
+println!("wave {}, status {:?}", receipt.wave_id_u64(), receipt.status);
+# Ok(()) }
+```
+
+**Expected output:**
+```
+submitted: 0xb8494f86ad764a5734c5e0bf2d4a4d8e4f6d35a9414d7c8b7f36accaa854ddef
+wave 12, status Success
+```
+
+### `PendingTx` API
+
+| Method | What |
+|---|---|
+| `hash() -> TxHash` | The canonical tx hash. |
+| `with_poll_interval(d) -> Self` | Override poll cadence (default 1 s). |
+| `with_timeout(d) -> Self` | Override total deadline (default 30 s). |
+| `wait_for_receipt() -> Result<Receipt>` | Poll until the receipt lands or timeout. |
+
+### Default constants
+
+| Constant | Value |
+|---|---|
+| `DEFAULT_POLL_INTERVAL` | `250 ms` |
+| `DEFAULT_TIMEOUT` | `60 s` |
+
+See [Constants §14.6](14-constants.md#146-pending-tx-defaults).
+
+### Tuning
+
+```rust,no_run
+# use std::sync::Arc;
+# use std::time::Duration;
+# use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
+# use pyde_rust_sdk::types::Tx;
+# async fn run(tx: &Tx) -> pyde_rust_sdk::Result<()> {
+# let provider = Arc::new(RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?));
+let receipt = provider
+    .send_transaction(tx).await?
+    .with_poll_interval(Duration::from_millis(50))   // tight loop on devnet
+    .with_timeout(Duration::from_secs(120))          // longer for testnet
+    .wait_for_receipt().await?;
+# Ok(()) }
+```
+
+### Hash cross-check
+
+`wait_for_receipt` cross-checks the returned receipt's `tx_hash`
+against the polled hash — guards against a misbehaving RPC node
+mis-routing receipts. The comparison is case-insensitive and
+0x-prefix tolerant.
+
+If the chain returns a mismatched hash, `wait_for_receipt` errors
+with `SdkError::InvalidResponse`.
+
+---
+
+## 6.8 Custom transports
+
+`Transport` is a small trait — you can implement it to wrap a
+different HTTP client, route over a Unix socket, mock for tests,
+or batch JSON-RPC calls.
 
 ```rust,ignore
 #[async_trait]
-pub trait Transport: Send + Sync + 'static {
-    async fn request(&self, method: &str, params: Value)
+pub trait Transport: Send + Sync {
+    async fn send(&self, method: &str, params: Value)
         -> Result<Value, SdkError>;
 }
 ```
 
-Implement it to wrap a different HTTP client, route over a Unix
-socket, mock for tests, or batch JSON-RPC calls. Anything that
-satisfies the request/response contract works.
+### Mock transport for tests
 
 ```rust,ignore
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 use pyde_rust_sdk::error::{Result, SdkError};
 use pyde_rust_sdk::provider::Transport;
 
 struct MockTransport {
-    canned: std::collections::HashMap<String, Value>,
+    canned: HashMap<String, Value>,
 }
 
 #[async_trait]
 impl Transport for MockTransport {
-    async fn request(&self, method: &str, _params: Value) -> Result<Value> {
+    async fn send(&self, method: &str, _params: Value) -> Result<Value> {
         self.canned.get(method).cloned()
             .ok_or_else(|| SdkError::Other(format!("no canned response for {method}")))
     }
 }
+
+#[tokio::test]
+async fn test_chain_id() {
+    use std::sync::Arc;
+    use pyde_rust_sdk::provider::RootProvider;
+    use pyde_rust_sdk::Provider;
+
+    let mut canned = HashMap::new();
+    canned.insert("pyde_chainId".to_string(), json!("0x7a69"));  // 31337
+    let provider = Arc::new(RootProvider::new(MockTransport { canned }));
+    assert_eq!(provider.chain_id().await.unwrap(), 31337);
+}
 ```
 
-Then `RootProvider::new(MockTransport { … })` and your tests have
-a deterministic Provider.
+### Logging transport
+
+Wrap `HttpTransport` to log every call:
+
+```rust,ignore
+use std::sync::Arc;
+use async_trait::async_trait;
+use serde_json::Value;
+use pyde_rust_sdk::error::{Result, SdkError};
+use pyde_rust_sdk::provider::{HttpTransport, Transport};
+
+struct LoggingTransport {
+    inner: Arc<HttpTransport>,
+}
+
+#[async_trait]
+impl Transport for LoggingTransport {
+    async fn send(&self, method: &str, params: Value) -> Result<Value> {
+        let started = std::time::Instant::now();
+        let result = self.inner.send(method, params.clone()).await;
+        let dur = started.elapsed();
+        match &result {
+            Ok(_) => eprintln!("rpc {method} ok in {:?}", dur),
+            Err(e) => eprintln!("rpc {method} err in {:?}: {e}", dur),
+        }
+        result
+    }
+}
+```

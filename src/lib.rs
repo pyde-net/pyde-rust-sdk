@@ -25,7 +25,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     let transport = HttpTransport::new("http://127.0.0.1:8545")?;
+//!     let transport = HttpTransport::new("http://127.0.0.1:9933")?;
 //!     let provider = Arc::new(RootProvider::new(transport));
 //!     let wallet = Wallet::generate()?;
 //!     let recipient = Address::from_hex("0xaa…")?;

@@ -1,0 +1,13 @@
+# Pins the Rust toolchain used to build + test pyde-rust-sdk.
+#
+# `stable` floats — newer toolchains keep working as long as the code
+# stays MSRV-clean. The MSRV itself lives in `Cargo.toml`
+# (`rust-version = "1.75"`) and CI verifies builds against that
+# specific version separately from this floating-stable build.
+#
+# Override locally with `rustup override set <toolchain>` if you need
+# to pin to a specific version for reproduction.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

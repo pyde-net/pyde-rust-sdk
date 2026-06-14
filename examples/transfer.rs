@@ -1,7 +1,7 @@
 //! Sign and submit a PYDE transfer via the HTTP provider.
 //!
 //! Set the `PYDE_RPC_URL` env var to the node's JSON-RPC endpoint
-//! (defaults to `http://127.0.0.1:8545`). Optionally set
+//! (defaults to `http://127.0.0.1:9933`). Optionally set
 //! `PYDE_RECIPIENT` to override the recipient address (defaults to
 //! all-zeros for a self-burn).
 //!
@@ -29,7 +29,7 @@ use pyde_rust_sdk::{Address, PendingTx, Provider, Signer, TxBuilder, Wallet};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
     let transport = HttpTransport::new(rpc_url.clone())?;
     let provider = Arc::new(RootProvider::new(transport));
     println!("connected: {rpc_url}");

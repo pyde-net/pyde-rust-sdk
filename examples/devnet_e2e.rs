@@ -1,10 +1,10 @@
-//! Live end-to-end smoke test against a `pyde devnet` running on
-//! `http://127.0.0.1:8545`.
+//! Live end-to-end smoke test against a `otigen devnet` running on
+//! `http://127.0.0.1:9933`.
 //!
 //! Run the devnet first:
 //!
 //! ```sh
-//! pyde devnet --rpc-listen 127.0.0.1:8545 --prefund-count 5
+//! otigen devnet --rpc-listen 127.0.0.1:9933 --prefund-count 5
 //! ```
 //!
 //! Then in another terminal:
@@ -52,7 +52,7 @@ fn devnet_secret(i: u64) -> [u8; 32] {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
     let transport = HttpTransport::new(rpc_url.clone())?;
     let provider = Arc::new(RootProvider::new(transport));
     let dyn_provider: Arc<dyn Provider> = provider.clone();

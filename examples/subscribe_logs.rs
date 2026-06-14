@@ -3,7 +3,7 @@
 //! the connection drops.
 //!
 //! Env vars:
-//! - `PYDE_WS_URL` — defaults to `ws://127.0.0.1:8546`.
+//! - `PYDE_WS_URL` — defaults to `ws://127.0.0.1:9933/ws`.
 //! - `PYDE_CONTRACT_ADDRESS` — optional address to scope the
 //!   subscription to a single contract.
 //!
@@ -25,7 +25,7 @@ use pyde_rust_sdk::{Address, WsProvider};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let url = std::env::var("PYDE_WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:8546".to_string());
+    let url = std::env::var("PYDE_WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:9933/ws".to_string());
 
     let provider = WsProvider::connect_ws(&url).await?;
     println!("connected: {url}");

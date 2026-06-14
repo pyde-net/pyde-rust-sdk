@@ -3,6 +3,10 @@ name = "pyde-rust-sdk"
 version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
+# Minimum Supported Rust Version — async fn in traits was stabilised
+# in 1.75. The Provider trait depends on it; bumping the MSRV is a
+# minor-version SDK change. CI verifies builds against this version.
+rust-version = "1.75"
 description = "Rust SDK for the Pyde blockchain — account generation, signing, RPC client, contract interaction"
 repository = "https://github.com/pyde-net/pyde-rust-sdk"
 

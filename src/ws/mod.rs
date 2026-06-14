@@ -95,7 +95,11 @@ struct WsInner {
 }
 
 impl WsTransport {
-    /// Open a WebSocket to `url` (e.g. `ws://127.0.0.1:8545`).
+    /// Open a WebSocket to `url` (e.g. `ws://127.0.0.1:9933/ws`).
+    ///
+    /// The chain serves the WS endpoint at the `/ws` path on the
+    /// same port as JSON-RPC HTTP — so a devnet on `9933` exposes
+    /// WS at `ws://127.0.0.1:9933/ws`.
     ///
     /// Spawns the read loop in the background; the returned
     /// [`WsTransport`] is usable as soon as the handshake completes.
