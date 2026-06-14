@@ -7,10 +7,12 @@
 //! [`pyde_abi!`] macro, and the small utility helpers every
 //! wallet/dapp needs.
 //!
-//! Sister SDK in TypeScript: `pyde-ts-sdk`. Both mirror the same
-//! conceptual surface; both share the canonical Pyde wire format
-//! through different cryptographic paths (this crate uses
-//! [`pyde_crypto`] directly; the TS SDK uses `pyde-crypto-wasm`).
+//! Sister SDK in TypeScript: `pyde-ts-sdk`. Both target the same
+//! chain wire format (Tx, TxType, AuthKeys, FALCON/Poseidon2 byte
+//! shapes are pinned across both) but have SDK-specific extras —
+//! notably the encrypted-keystore envelopes are not interchangeable
+//! (this crate uses AES-256-GCM + nested envelope; TS uses
+//! ChaCha20-Poly1305 + flat envelope). See `docs/12-compatibility.md`.
 //!
 //! ## Quick start
 //!
