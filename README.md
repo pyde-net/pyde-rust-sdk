@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
 | [`abi`](src/abi) | `extract_abi(wasm)` — pulls the `pyde.abi` custom section from a contract's bytecode |
 | [`contract`](src/contract) | Dynamic `Contract` runtime + `pyde_abi!` proc-macro for compile-time typed wrappers |
 | [`util`](src/util) | hex helpers + PYDE↔quanta unit conversion |
+| [`multisig`](src/multisig.rs) | Treasury `k-of-n` FALCON bundles — canonical message, `sign_action`, `MultisigTxPayload`, `TxBuilder::multisig_treasury_spend` |
 | [`error`](src/error) | `SdkError` + `Result` |
 
 ## Typed contracts via `pyde_abi!`
@@ -125,6 +126,7 @@ println!("{count:?}");
 | [`examples/devnet_e2e.rs`](examples/devnet_e2e.rs) | Live devnet smoke test — chain info, transfer, deploy, view + send |
 | [`examples/nft_marketplace.rs`](examples/nft_marketplace.rs) | Multi-account, multi-contract orchestration — ERC20 + ERC721 + atomic-swap marketplace |
 | [`examples/halt_methods.rs`](examples/halt_methods.rs) | Deploys a Go-authored access-guarded contract; demonstrates every Pyde halt mode (authorization revert, plain revert, `ERR_*` named-token, integer code, WASM trap) + SDK error parsing |
+| [`examples/multisig_treasury.rs`](examples/multisig_treasury.rs) | 2-of-3 FALCON treasury spend — canonical message, sign-collect, envelope tx, wire round-trip |
 
 Local examples (no node required):
 
