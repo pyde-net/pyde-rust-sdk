@@ -176,7 +176,7 @@ fn precise_user_message(err: &SdkError) -> String {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
     let wasm_path = std::env::var("PYDE_ACCESS_GUARD_WASM").map_err(|_| {
         anyhow::anyhow!(
             "missing PYDE_ACCESS_GUARD_WASM — build the contract first: \

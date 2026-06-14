@@ -202,7 +202,7 @@ async fn view_call<T: borsh::BorshDeserialize>(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
     let erc20_wasm_path = require_env("PYDE_ERC20_WASM")?;
     let erc721_wasm_path = require_env("PYDE_ERC721_WASM")?;
     let marketplace_wasm_path = require_env("PYDE_MARKETPLACE_WASM")?;

@@ -179,7 +179,7 @@ pub trait Provider: Send + Sync {
 /// use std::sync::Arc;
 /// use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 ///
-/// let transport = HttpTransport::new("http://127.0.0.1:8545")?;
+/// let transport = HttpTransport::new("http://127.0.0.1:9933")?;
 /// let provider = Arc::new(RootProvider::new(transport));
 /// // Now usable as `Arc<dyn Provider>`:
 /// let chain_id = provider.chain_id().await?;

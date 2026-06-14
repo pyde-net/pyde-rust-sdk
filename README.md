@@ -16,20 +16,24 @@ Account generation, FALCON-512 signing, transaction construction, JSON-RPC clien
 
 ## Documentation
 
-Comprehensive docs live in [`docs/`](docs/README.md):
+Comprehensive docs live in [`docs/`](docs/README.md) — 14 chapters with detailed per-API references, examples, and expected output:
 
-1. [Install](docs/01-install.md) — Cargo dep, MSRV, system tooling
+1. [Install](docs/01-install.md) — Cargo dep, MSRV, `otigen` install, system tooling
 2. [Quickstart](docs/02-quickstart.md) — 5-minute end-to-end against a local devnet
-3. [Concepts](docs/03-concepts.md) — FALCON, Poseidon2/Blake3, addresses, nonce window, wave vs block, units
-4. [Wallets](docs/04-wallets.md) — `Wallet`, `LocalSigner`, `Keystore`, custom signers
+3. [Concepts](docs/03-concepts.md) — FALCON, Poseidon2/Blake3, addresses, nonce window, units
+4. [Wallets](docs/04-wallets.md) — `Wallet`, `LocalSigner`, `Keystore`, custom signers, zeroize
 5. [Transactions](docs/05-transactions.md) — `TxBuilder`, `tx_hash`, signing, encoding, gas + fees
-6. [Providers](docs/06-providers.md) — `HttpProvider`, `WsProvider`, every RPC method, `PendingTx`
-7. [Contracts](docs/07-contracts.md) — Deploy, `pyde_abi!` macro, dynamic `Contract`, `Value`
+6. [Providers](docs/06-providers.md) — `HttpProvider`, `WsProvider`, every RPC method, `PendingTx`, retry policy
+7. [Contracts](docs/07-contracts.md) — Deploy, `pyde_abi!` macro, dynamic `Contract`, `Value`, codec
 8. [Events](docs/08-events.md) — `LogFilter`, `EventFilter`, cursor pagination, WS subscriptions
 9. [Errors](docs/09-errors.md) — `SdkError`, `ErrorCode`, revert-reason decoding, dapp UX
 10. [Multisig](docs/10-multisig.md) — Treasury bundle, `canonical_msg`, `sign_action`, 2-of-3 walkthrough
-11. [Examples](docs/11-examples.md) — Walkthrough of every `examples/*.rs` file
+11. [Examples](docs/11-examples.md) — Per-example walkthrough with expected output
 12. [Compatibility](docs/12-compatibility.md) — Wire format guarantees, ABI versions, MSRV, TS SDK delta
+13. [Utilities](docs/13-utilities.md) — Every helper in `crate::util` — hex, units, byte/slice
+14. [Constants](docs/14-constants.md) — Every public constant — gas, keystore, codec caps, error codes, etc.
+
+Changelog: [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -51,7 +55,7 @@ use pyde_rust_sdk::{Address, Provider, Signer, TxBuilder, Wallet};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let transport = HttpTransport::new("http://127.0.0.1:8545")?;
+    let transport = HttpTransport::new("http://127.0.0.1:9933")?;
     let provider = Arc::new(RootProvider::new(transport));
 
     let wallet = Wallet::generate()?;
@@ -123,9 +127,9 @@ cargo run --example multisig_treasury
 Network examples take `PYDE_RPC_URL` (and friends):
 
 ```sh
-PYDE_RPC_URL=http://127.0.0.1:8545 cargo run --example transfer
-PYDE_RPC_URL=http://127.0.0.1:8545 PYDE_CONTRACT_NAME=counter cargo run --example contract_dynamic
-PYDE_WS_URL=ws://127.0.0.1:8546 cargo run --example subscribe_logs
+PYDE_RPC_URL=http://127.0.0.1:9933 cargo run --example transfer
+PYDE_RPC_URL=http://127.0.0.1:9933 PYDE_CONTRACT_NAME=counter cargo run --example contract_dynamic
+PYDE_WS_URL=ws://127.0.0.1:9933/ws cargo run --example subscribe_logs
 ```
 
 ## Compatibility

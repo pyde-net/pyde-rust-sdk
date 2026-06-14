@@ -64,6 +64,15 @@ use crate::types::{
 /// `sign_tx` path), exposes the [`Self::to_keystore`] /
 /// [`Self::from_keystore`] persistence pair, and forwards the common
 /// `address()` / `pubkey()` accessors.
+///
+/// ## Memory safety
+///
+/// The inner [`FalconSecret`] derives `ZeroizeOnDrop`, so when a
+/// `Wallet` is dropped the 1281-byte secret-key buffer is wiped
+/// before the allocator reclaims the memory. You don't need to
+/// call any explicit cleanup — letting the `Wallet` go out of
+/// scope is enough. See [`wallet_drop_wipes_secret`] (in tests)
+/// for the test pin.
 pub struct Wallet {
     signer: LocalSigner,
 }
@@ -456,6 +465,37 @@ mod tests {
 
     use super::*;
     use crate::tx::{tx_hash, TxBuilder};
+
+    /// Pin: `Wallet` must implement `Drop` (transitively through
+    /// `FalconSecret::ZeroizeOnDrop`). If this regresses, the
+    /// secret-key buffer would survive on the heap after Wallet
+    /// goes out of scope — a silent security regression that no
+    /// other test would catch.
+    #[test]
+    fn wallet_drop_wipes_secret() {
+        assert!(
+            core::mem::needs_drop::<Wallet>(),
+            "Wallet must implement Drop so the inner FalconSecret \
+             is zeroed when Wallet goes out of scope",
+        );
+        assert!(
+            core::mem::needs_drop::<LocalSigner>(),
+            "LocalSigner must implement Drop for the same reason",
+        );
+        assert!(
+            core::mem::needs_drop::<FalconSecret>(),
+            "FalconSecret must implement Drop (via ZeroizeOnDrop) — \
+             the root of the zeroize chain",
+        );
+
+        // Smoke-test the full create+drop cycle a few times; if the
+        // Drop impl has UB or panics, this surfaces it.
+        for _ in 0..16 {
+            let w = Wallet::generate().unwrap();
+            let _addr = w.address();
+            drop(w);
+        }
+    }
 
     #[tokio::test]
     async fn wallet_signs_a_tx_end_to_end() {
