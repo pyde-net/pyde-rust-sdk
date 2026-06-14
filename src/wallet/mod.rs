@@ -38,8 +38,10 @@
 //!   guidance.
 //! - **Cipher**: AES-256-GCM. 12-byte random nonce per write; the
 //!   GCM tag is appended to the ciphertext.
-//! - **Wire-compatible with `pyde-ts-sdk`** so a wallet generated
-//!   in the browser SDK loads here unchanged.
+//!
+//! The keystore format is SDK-specific — `pyde-ts-sdk` uses a
+//! different cipher (ChaCha20-Poly1305) + flat field shape, so
+//! keystores don't import across SDKs today.
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -206,8 +208,11 @@ const AES_NONCE_LEN: usize = 12;
 
 /// JSON envelope for an encrypted wallet on disk.
 ///
-/// Field shape is wire-compatible with `pyde-ts-sdk`'s keystore so a
-/// wallet generated in one SDK loads cleanly in the other.
+/// This format is **specific to this SDK** — `pyde-ts-sdk` ships its
+/// own keystore (ChaCha20-Poly1305 + flat envelope) and the two are
+/// not interchangeable today. See `docs/12-compatibility.md` for the
+/// concrete field-shape differences if you need to migrate a
+/// keystore by hand.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keystore {
     /// Envelope version. Currently [`KEYSTORE_VERSION`].

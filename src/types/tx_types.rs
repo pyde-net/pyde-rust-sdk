@@ -89,7 +89,7 @@ pub enum TxType {
     /// `0x0A` — Rotate the treasury multisig signer set + threshold.
     /// `data` holds (new_signers ‖ new_threshold ‖ sigs).
     RotateMultisig = 0x0A,
-    /// `0x0B` — Halt block production. Multisig-signed; `data`
+    /// `0x0B` — Halt wave production. Multisig-signed; `data`
     /// holds sigs.
     EmergencyPause = 0x0B,
     /// `0x0C` — Resume normal processing. Multisig-signed; `data`

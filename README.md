@@ -14,6 +14,23 @@ Account generation, FALCON-512 signing, transaction construction, JSON-RPC clien
 
 > v1 surface is locked. Wire types are byte-for-byte compatible with the chain engine.
 
+## Documentation
+
+Comprehensive docs live in [`docs/`](docs/README.md):
+
+1. [Install](docs/01-install.md) — Cargo dep, MSRV, system tooling
+2. [Quickstart](docs/02-quickstart.md) — 5-minute end-to-end against a local devnet
+3. [Concepts](docs/03-concepts.md) — FALCON, Poseidon2/Blake3, addresses, nonce window, wave vs block, units
+4. [Wallets](docs/04-wallets.md) — `Wallet`, `LocalSigner`, `Keystore`, custom signers
+5. [Transactions](docs/05-transactions.md) — `TxBuilder`, `tx_hash`, signing, encoding, gas + fees
+6. [Providers](docs/06-providers.md) — `HttpProvider`, `WsProvider`, every RPC method, `PendingTx`
+7. [Contracts](docs/07-contracts.md) — Deploy, `pyde_abi!` macro, dynamic `Contract`, `Value`
+8. [Events](docs/08-events.md) — `LogFilter`, `EventFilter`, cursor pagination, WS subscriptions
+9. [Errors](docs/09-errors.md) — `SdkError`, `ErrorCode`, revert-reason decoding, dapp UX
+10. [Multisig](docs/10-multisig.md) — Treasury bundle, `canonical_msg`, `sign_action`, 2-of-3 walkthrough
+11. [Examples](docs/11-examples.md) — Walkthrough of every `examples/*.rs` file
+12. [Compatibility](docs/12-compatibility.md) — Wire format guarantees, ABI versions, MSRV, TS SDK delta
+
 ## Install
 
 ```toml
@@ -21,6 +38,8 @@ Account generation, FALCON-512 signing, transaction construction, JSON-RPC clien
 pyde-rust-sdk = { git = "https://github.com/pyde-net/pyde-rust-sdk" }
 tokio = { version = "1", features = ["full"] }
 ```
+
+Full install + tooling instructions in [docs/01-install.md](docs/01-install.md).
 
 ## Quick start
 
@@ -58,6 +77,8 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+Step-by-step explanation: [docs/02-quickstart.md](docs/02-quickstart.md).
+
 ## What's in the box
 
 | Module | What |
@@ -65,53 +86,14 @@ async fn main() -> anyhow::Result<()> {
 | [`types`](src/types) | `Address`, `TxHash`, `FalconPubkey`/`FalconSignature`, `Tx`, `TxType`, `FeePayer`, `AccessEntry`, `Receipt`, `Event`, `ContractAbi`, `ParamType`, `StateSchema` — all wire types Borsh-compatible with the engine |
 | [`tx`](src/tx) | `TxBuilder` + `tx_hash` (Poseidon2 over the canonical pre-image, signature excluded) + Borsh `encode` / `decode` |
 | [`signer`](src/signer) | `Signer` trait + `LocalSigner` (FALCON-512 keypair via `pyde-crypto`) |
-| [`wallet`](src/wallet) | `Wallet` (implements `Signer`) + `Keystore` (argon2id + AES-256-GCM, JSON envelope, wire-compatible with `pyde-ts-sdk`) |
-| [`provider`](src/provider) | `Provider` trait (23 methods) + `HttpProvider` (reqwest) + `PendingTx` |
+| [`wallet`](src/wallet) | `Wallet` (implements `Signer`) + `Keystore` (Argon2id + AES-256-GCM, SDK-specific format) |
+| [`provider`](src/provider) | `Provider` trait (23 RPC methods) + `HttpProvider` (reqwest) + `PendingTx` |
 | [`ws`](src/ws) | `WsProvider` + `Subscription<Event>` (v1 ships `subscribe_logs`; other kinds queued behind the engine) |
 | [`abi`](src/abi) | `extract_abi(wasm)` — pulls the `pyde.abi` custom section from a contract's bytecode |
 | [`contract`](src/contract) | Dynamic `Contract` runtime + `pyde_abi!` proc-macro for compile-time typed wrappers |
 | [`util`](src/util) | hex helpers + PYDE↔quanta unit conversion |
 | [`multisig`](src/multisig.rs) | Treasury `k-of-n` FALCON bundles — canonical message, `sign_action`, `MultisigTxPayload`, `TxBuilder::multisig_treasury_spend` |
 | [`error`](src/error) | `SdkError` + `Result` |
-
-## Typed contracts via `pyde_abi!`
-
-```rust,ignore
-use std::sync::Arc;
-use pyde_rust_sdk::{Address, Provider, Wallet};
-
-pyde_rust_sdk::pyde_abi!(Counter, "abi/counter.json");
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let provider: Arc<dyn Provider> = /* HttpProvider */ todo!();
-    let wallet = Wallet::generate()?;
-    let counter = Counter::new(Address::ZERO, provider);
-
-    let count: u64 = counter.get_count().await?;
-    let pending = counter.add(&wallet, 5, 200_000, 0).await?;
-    let _ = pending.wait_for_receipt().await?;
-    Ok(())
-}
-```
-
-VIEW functions become `async fn name(&self, args...) -> Result<RetType>`. Non-view functions become `async fn name(&self, signer, args..., gas_limit, value) -> Result<PendingTx>`. The ABI is baked in at compile time — no runtime fetch.
-
-## Dynamic contracts
-
-For tools that don't know the contract at compile time (explorers, indexers, multi-contract wallets):
-
-```rust,no_run
-use std::sync::Arc;
-use pyde_rust_sdk::contract::{Contract, Value};
-use pyde_rust_sdk::Provider;
-
-# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
-let contract = Contract::load("counter", provider).await?;
-let count = contract.call("get_count", vec![]).await?;
-println!("{count:?}");
-# Ok(()) }
-```
 
 ## Examples
 
@@ -125,14 +107,17 @@ println!("{count:?}");
 | [`examples/subscribe_logs.rs`](examples/subscribe_logs.rs) | Open WS, stream event logs |
 | [`examples/devnet_e2e.rs`](examples/devnet_e2e.rs) | Live devnet smoke test — chain info, transfer, deploy, view + send |
 | [`examples/nft_marketplace.rs`](examples/nft_marketplace.rs) | Multi-account, multi-contract orchestration — ERC20 + ERC721 + atomic-swap marketplace |
-| [`examples/halt_methods.rs`](examples/halt_methods.rs) | Deploys a Go-authored access-guarded contract; demonstrates every Pyde halt mode (authorization revert, plain revert, `ERR_*` named-token, integer code, WASM trap) + SDK error parsing |
-| [`examples/multisig_treasury.rs`](examples/multisig_treasury.rs) | 2-of-3 FALCON treasury spend — canonical message, sign-collect, envelope tx, wire round-trip |
+| [`examples/halt_methods.rs`](examples/halt_methods.rs) | Every Pyde halt mode + structured error parsing |
+| [`examples/multisig_treasury.rs`](examples/multisig_treasury.rs) | 2-of-3 FALCON treasury spend |
+
+Walkthroughs + run instructions: [docs/11-examples.md](docs/11-examples.md).
 
 Local examples (no node required):
 
 ```sh
 cargo run --example wallet_basics
 cargo run --example keystore
+cargo run --example multisig_treasury
 ```
 
 Network examples take `PYDE_RPC_URL` (and friends):
@@ -143,58 +128,11 @@ PYDE_RPC_URL=http://127.0.0.1:8545 PYDE_CONTRACT_NAME=counter cargo run --exampl
 PYDE_WS_URL=ws://127.0.0.1:8546 cargo run --example subscribe_logs
 ```
 
-## Error handling
-
-The SDK surfaces every error class with structured context. A typical
-revert handler:
-
-```rust,ignore
-use pyde_rust_sdk::{SdkError, types::ErrorCode};
-
-match err {
-    SdkError::Reverted { gas_used, .. } => {
-        if let Some(code) = err.error_code() {
-            match code {
-                ErrorCode::Forbidden => println!("not permitted"),
-                ErrorCode::InsufficientBalance => println!("not enough balance"),
-                ErrorCode::ReentrancyBlocked => println!("re-entrant"),
-                other => println!("chain code {other}"),
-            }
-        } else if let Some(reason) = err.revert_reason() {
-            println!("contract said: {reason}");
-        } else {
-            println!("reverted (no decodable payload) — gas {gas_used}");
-        }
-    }
-    SdkError::Timeout(_) => println!("timed out waiting for receipt"),
-    SdkError::Rpc(msg) => println!("node returned error: {msg}"),
-    _ => println!("{err}"),
-}
-```
-
-`SdkError::error_code()` scans the revert payload for both named
-tokens (`"ERR_FORBIDDEN"`) and embedded negative integers (`"-5"`)
-and maps either to a typed [`ErrorCode`](src/types/error_code.rs)
-matching HOST_FN_ABI §4. `revert_reason()` decodes Borsh-`String`,
-legacy `u64`-prefixed, and raw UTF-8 revert payloads. The full
-matrix is live-tested in [`examples/halt_methods.rs`](examples/halt_methods.rs).
-
 ## Compatibility
 
 - **Chain wire format**: every type the SDK puts on the wire is byte-for-byte identical to its counterpart in `engine/crates/types/`. Hash algorithm (`tx_hash`), Borsh field order, and `TxType` / `FeePayer` / `AuthKeys` tag values all match.
-- **Keystore JSON**: compatible with `pyde-ts-sdk` — a wallet generated in the browser SDK loads here unchanged.
+- **Keystore JSON**: SDK-specific (AES-256-GCM + nested envelope). Not interchangeable with `pyde-ts-sdk`'s keystore (which uses ChaCha20-Poly1305 + a flat envelope) — convergence is on the roadmap; see [docs/12-compatibility.md](docs/12-compatibility.md).
 - **ABI schema**: `pyde.abi` custom section decoded up to `ContractAbi::V1_2`.
-
-## Status
-
-| Phase | Status |
-|---|---|
-| A1 — types, signer, wallet, canonical tx hash | ✓ |
-| A2 — provider (23 RPC methods), WS subscriptions, PendingTx | ✓ |
-| A3 — ABI parser, Contract runtime, `pyde_abi!` macro | ✓ |
-| Examples + docs | ✓ |
-| CI mirror | pending |
-| Pre-mainnet spec audit pass | pending |
 
 ## License
 
