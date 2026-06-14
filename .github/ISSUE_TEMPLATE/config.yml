@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/pyde-net/.github/blob/main/SECURITY.md
+    about: Do not open public issues for security vulnerabilities — follow the disclosure policy.
+  - name: Protocol change proposal (PIP)
+    url: https://github.com/pyde-net/pips
+    about: For consensus / wire format / ABI / gas changes — these need a PIP, not an SDK issue.
+  - name: Chain bug (not SDK)
+    url: https://github.com/pyde-net/engine/issues
+    about: For bugs in the chain itself (consensus, RPC behaviour, mempool), file against the engine.
+  - name: Contract toolchain bug
+    url: https://github.com/pyde-net/otigen/issues
+    about: For bugs in otigen (init / build / deploy / devnet), file against otigen.
+  - name: Documentation issue (book / specs)
+    url: https://github.com/pyde-net/pyde-book/issues
+    about: For chain spec / book typos or clarifications, file against pyde-book.

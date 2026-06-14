@@ -58,6 +58,30 @@ jobs:
         working-directory: pyde-rust-sdk
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # ── msrv ─────────────────────────────────────────────────────
+  # Build against the declared MSRV (rust-version in Cargo.toml).
+  # Catches accidental use of stdlib APIs newer than 1.75. Same
+  # sibling-checkout pattern as clippy/test.
+  msrv:
+    name: msrv (1.75)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pyde-rust-sdk
+      - name: Checkout sibling pyde-crypto
+        uses: actions/checkout@v4
+        with:
+          repository: pyde-net/pyde-crypto
+          path: pyde-crypto
+          token: ${{ secrets.PYDE_REPO_TOKEN }}
+        continue-on-error: true
+      - name: Install Rust 1.75
+        run: rustup toolchain install 1.75 --profile minimal
+      - name: cargo +1.75 build --workspace
+        working-directory: pyde-rust-sdk
+        run: cargo +1.75 build --workspace
+
   # ── test ─────────────────────────────────────────────────────
   test:
     name: test
