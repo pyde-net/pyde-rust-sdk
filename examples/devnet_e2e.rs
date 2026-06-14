@@ -81,9 +81,7 @@ async fn main() -> anyhow::Result<()> {
     let bal_recipient_pyde = format_quanta(bal_recipient);
     println!("balance: {bal_sender_pyde} PYDE  ({bal_sender} quanta)");
     // Devnet ships a 10-PYDE pre-fund per account by default
-    // (10,000,000,000 quanta with PYDE_DECIMALS = 9). The engine
-    // CLI's `--prefund-amount` help text labels this as "10,000
-    // PYDE" which is off by 1000 — flagged for engine fix.
+    // (10,000,000,000 quanta with PYDE_DECIMALS = 9).
     anyhow::ensure!(
         bal_sender == 10_000_000_000,
         "expected 10 PYDE pre-fund; got {bal_sender_pyde}"

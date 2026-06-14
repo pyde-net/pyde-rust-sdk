@@ -124,6 +124,7 @@ println!("{count:?}");
 | [`examples/subscribe_logs.rs`](examples/subscribe_logs.rs) | Open WS, stream event logs |
 | [`examples/devnet_e2e.rs`](examples/devnet_e2e.rs) | Live devnet smoke test — chain info, transfer, deploy, view + send |
 | [`examples/nft_marketplace.rs`](examples/nft_marketplace.rs) | Multi-account, multi-contract orchestration — ERC20 + ERC721 + atomic-swap marketplace |
+| [`examples/halt_methods.rs`](examples/halt_methods.rs) | Deploys a Go-authored access-guarded contract; demonstrates every Pyde halt mode (authorization revert, plain revert, `ERR_*` named-token, integer code, WASM trap) + SDK error parsing |
 
 Local examples (no node required):
 
@@ -139,6 +140,42 @@ PYDE_RPC_URL=http://127.0.0.1:8545 cargo run --example transfer
 PYDE_RPC_URL=http://127.0.0.1:8545 PYDE_CONTRACT_NAME=counter cargo run --example contract_dynamic
 PYDE_WS_URL=ws://127.0.0.1:8546 cargo run --example subscribe_logs
 ```
+
+## Error handling
+
+The SDK surfaces every error class with structured context. A typical
+revert handler:
+
+```rust,ignore
+use pyde_rust_sdk::{SdkError, types::ErrorCode};
+
+match err {
+    SdkError::Reverted { gas_used, .. } => {
+        if let Some(code) = err.error_code() {
+            match code {
+                ErrorCode::Forbidden => println!("not permitted"),
+                ErrorCode::InsufficientBalance => println!("not enough balance"),
+                ErrorCode::ReentrancyBlocked => println!("re-entrant"),
+                other => println!("chain code {other}"),
+            }
+        } else if let Some(reason) = err.revert_reason() {
+            println!("contract said: {reason}");
+        } else {
+            println!("reverted (no decodable payload) — gas {gas_used}");
+        }
+    }
+    SdkError::Timeout(_) => println!("timed out waiting for receipt"),
+    SdkError::Rpc(msg) => println!("node returned error: {msg}"),
+    _ => println!("{err}"),
+}
+```
+
+`SdkError::error_code()` scans the revert payload for both named
+tokens (`"ERR_FORBIDDEN"`) and embedded negative integers (`"-5"`)
+and maps either to a typed [`ErrorCode`](src/types/error_code.rs)
+matching HOST_FN_ABI §4. `revert_reason()` decodes Borsh-`String`,
+legacy `u64`-prefixed, and raw UTF-8 revert payloads. The full
+matrix is live-tested in [`examples/halt_methods.rs`](examples/halt_methods.rs).
 
 ## Compatibility
 
