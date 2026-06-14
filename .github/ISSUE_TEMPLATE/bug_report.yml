@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in pyde-rust-sdk isn't working as documented
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.
+
+        **Before submitting:**
+        - Search [existing issues](https://github.com/pyde-net/pyde-rust-sdk/issues) to avoid duplicates.
+        - If the bug is a **security vulnerability**, do not file publicly — follow [SECURITY.md](https://github.com/pyde-net/.github/blob/main/SECURITY.md) instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: SDK version
+      description: The git revision / tag / crates.io version you're using.
+      placeholder: "git rev abc1234 / 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: rustc
+    attributes:
+      label: rustc version
+      description: Output of `rustc --version`.
+      placeholder: "rustc 1.78.0 (9b00956e5 2024-04-29)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows (WSL)
+        - Other / multiple
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the unexpected behaviour.
+      placeholder: |
+        I called `provider.send_transaction(&tx)` against my devnet
+        and got `SdkError::InvalidResponse("...")` even though `tx_hash`
+        succeeded.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen, and why (link the relevant doc section if any).
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: |
+        Minimum steps + code to reproduce. Ideally a self-contained `cargo new` snippet.
+        If chain-state matters, mention the devnet seed / chain id / wave id.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: Paste relevant logs, panics, error messages. Wrap in fenced code blocks.
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that might help — links, related issues, partial workarounds.

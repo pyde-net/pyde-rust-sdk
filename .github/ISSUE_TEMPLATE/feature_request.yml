@@ -1,0 +1,64 @@
+name: Feature request
+description: Propose a new API, helper, or behaviour for the SDK
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion.
+
+        **Before submitting:**
+        - Search [existing issues](https://github.com/pyde-net/pyde-rust-sdk/issues) to avoid duplicates.
+        - **Protocol-affecting changes** (consensus rules, tx wire format, gas costs, ABI, etc.) need a [PIP](https://github.com/pyde-net/pips) — file there instead. See [CONTRIBUTING](https://github.com/pyde-net/.github/blob/main/CONTRIBUTING.md#path-a--protocol-affecting-changes-require-a-pip).
+        - This template is for SDK-side ergonomic / API / quality-of-life changes.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem this solves?
+      description: |
+        Describe the dapp / workflow scenario where the missing
+        feature hurts. What do you do today, and why is it painful?
+      placeholder: |
+        I'm building a treasury-management UI and need to read the
+        current MultisigState off chain. Today I have to call
+        `provider.get_account(&treasury)` and parse the AccountInfo
+        manually — there's no `provider.get_multisig_state(...)`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: |
+        Sketch the surface you'd like. Function signature, struct
+        shape, example call site. Doesn't need to be the final
+        version — just enough to discuss the shape.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other shapes you thought about, and why they're worse.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: How big is this?
+      options:
+        - "Tiny — single helper, no breaking change"
+        - "Medium — new module or substantial helper"
+        - "Large — new subsystem or breaking change"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links to relevant chain spec sections, related issues, prior art in alloy / ethers-rs / etc.
