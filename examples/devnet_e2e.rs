@@ -34,6 +34,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use pyde_rust_sdk::constants::{GAS_DEPLOY, GAS_TRANSFER};
 use pyde_rust_sdk::contract::{Contract, Value};
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::util::{format_quanta, parse_quanta};
@@ -112,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
         .chain_id(chain_id)
         .nonce(nonce)
         .transfer(fresh_recipient.address(), amount)
-        .gas_limit(100_000)
+        .gas_limit(GAS_TRANSFER)
         .build()?;
     sender.sign_tx(&mut tx).await?;
     println!("signed tx: {} sig bytes", tx.signature.as_bytes().len());
@@ -218,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
                 Vec::new(),
             )
             .map_err(|e| anyhow::anyhow!(e))?
-            .gas_limit(10_000_000)
+            .gas_limit(GAS_DEPLOY)
             .build()?;
         sender.sign_tx(&mut deploy_tx).await?;
         let deploy_hash = provider.send_raw_transaction(&deploy_tx).await?;

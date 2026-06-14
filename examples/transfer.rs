@@ -18,6 +18,7 @@
     clippy::unwrap_used
 )]
 
+use pyde_rust_sdk::constants::GAS_TRANSFER;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -50,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
     println!("chain_id: {chain_id}, nonce: {nonce}");
 
     let mut tx = TxBuilder::new()
+        .gas_limit(GAS_TRANSFER)
         .from(wallet.address())
         .chain_id(chain_id)
         .nonce(nonce)

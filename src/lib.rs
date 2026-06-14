@@ -50,6 +50,7 @@
 // ── Module declarations ──────────────────────────────────────────────
 
 pub mod abi;
+pub mod constants;
 pub mod contract;
 pub mod error;
 pub mod provider;

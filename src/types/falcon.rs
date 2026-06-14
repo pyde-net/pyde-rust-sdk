@@ -93,8 +93,15 @@ impl fmt::Debug for FalconPubkey {
 }
 
 impl PartialEq for FalconPubkey {
+    /// Constant-time byte compare.
+    ///
+    /// FALCON public keys aren't secrets — but adopting a uniform
+    /// constant-time policy on every crypto-adjacent type means
+    /// future refactors can't accidentally introduce a timing leak
+    /// by reusing a `==` call site on a secret.
     fn eq(&self, other: &Self) -> bool {
-        self.0[..] == other.0[..]
+        use subtle::ConstantTimeEq;
+        self.0.ct_eq(&other.0).into()
     }
 }
 
