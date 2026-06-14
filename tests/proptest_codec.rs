@@ -151,3 +151,91 @@ proptest! {
         prop_assert_eq!(hash_before, hash_after);
     }
 }
+
+// ── Nested composites — close the proptest gap for arbitrary depth.
+
+fn arb_vec_of_string() -> impl Strategy<Value = (ParamType, Value)> {
+    prop::collection::vec("[a-z]{0,32}".prop_map(String::from), 0..16).prop_map(|items| {
+        (
+            ParamType::Vec(Box::new(ParamType::String)),
+            Value::Vec(items.into_iter().map(Value::String).collect()),
+        )
+    })
+}
+
+fn arb_map_string_to_u128() -> impl Strategy<Value = (ParamType, Value)> {
+    prop::collection::vec(("[a-z]{0,16}", any::<u128>()), 0..16).prop_map(|pairs| {
+        let mut entries: Vec<(Value, Value)> = pairs
+            .into_iter()
+            .map(|(k, v)| (Value::String(k), Value::U128(v)))
+            .collect();
+        // Dedupe by key — borsh map encoding is order-preserving but
+        // not deduping, and our codec is happy either way; but the
+        // hand-written round-trip easier if we keep keys unique.
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries.dedup_by(|a, b| a.0 == b.0);
+        (
+            ParamType::Map {
+                key: Box::new(ParamType::String),
+                value: Box::new(ParamType::U128),
+            },
+            Value::Map(entries),
+        )
+    })
+}
+
+fn arb_option_address() -> impl Strategy<Value = (ParamType, Value)> {
+    prop::option::of(proptest::array::uniform32(any::<u8>()).prop_map(Address::new)).prop_map(
+        |opt| {
+            (
+                ParamType::Option(Box::new(ParamType::Address)),
+                Value::Option(opt.map(|a| Box::new(Value::Address(a)))),
+            )
+        },
+    )
+}
+
+fn arb_vec_of_vec_u64() -> impl Strategy<Value = (ParamType, Value)> {
+    prop::collection::vec(prop::collection::vec(any::<u64>(), 0..8), 0..8).prop_map(|outer| {
+        let mut top = Vec::with_capacity(outer.len());
+        for inner in outer {
+            top.push(Value::Vec(inner.into_iter().map(Value::U64).collect()));
+        }
+        (
+            ParamType::Vec(Box::new(ParamType::Vec(Box::new(ParamType::U64)))),
+            Value::Vec(top),
+        )
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+
+    #[test]
+    fn vec_string_round_trips((ty, value) in arb_vec_of_string()) {
+        let bytes = encode_value(&ty, &value).unwrap();
+        let decoded = decode_value(&ty, &bytes).unwrap();
+        prop_assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn map_string_u128_round_trips((ty, value) in arb_map_string_to_u128()) {
+        let bytes = encode_value(&ty, &value).unwrap();
+        let decoded = decode_value(&ty, &bytes).unwrap();
+        prop_assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn option_address_round_trips((ty, value) in arb_option_address()) {
+        let bytes = encode_value(&ty, &value).unwrap();
+        let decoded = decode_value(&ty, &bytes).unwrap();
+        prop_assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn nested_vec_of_vec_u64_round_trips((ty, value) in arb_vec_of_vec_u64()) {
+        let bytes = encode_value(&ty, &value).unwrap();
+        let decoded = decode_value(&ty, &bytes).unwrap();
+        prop_assert_eq!(decoded, value);
+    }
+}

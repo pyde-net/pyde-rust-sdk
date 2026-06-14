@@ -122,6 +122,8 @@ println!("{count:?}");
 | [`examples/contract_dynamic.rs`](examples/contract_dynamic.rs) | Load a contract by name, dynamic call |
 | [`examples/contract_typed.rs`](examples/contract_typed.rs) | Macro-generated typed wrapper |
 | [`examples/subscribe_logs.rs`](examples/subscribe_logs.rs) | Open WS, stream event logs |
+| [`examples/devnet_e2e.rs`](examples/devnet_e2e.rs) | Live devnet smoke test — chain info, transfer, deploy, view + send |
+| [`examples/nft_marketplace.rs`](examples/nft_marketplace.rs) | Multi-account, multi-contract orchestration — ERC20 + ERC721 + atomic-swap marketplace |
 
 Local examples (no node required):
 

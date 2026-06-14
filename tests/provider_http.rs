@@ -409,3 +409,177 @@ async fn pending_tx_times_out() {
     let err = pending.wait_for_receipt().await.unwrap_err();
     assert!(matches!(err, pyde_rust_sdk::SdkError::Timeout(_)));
 }
+
+// ── Coverage gap: 8 RPC methods the audit flagged as untested. ─
+
+#[tokio::test]
+async fn get_metrics_returns_value() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getMetrics"))
+        .respond_with(ok_response(json!({
+            "waves_committed_total": 42,
+            "mempool_txs_received_total": 1000
+        })))
+        .mount(&server)
+        .await;
+    let v = provider.get_metrics().await.unwrap();
+    assert_eq!(v["waves_committed_total"], 42);
+}
+
+#[tokio::test]
+async fn call_decodes_hex_return() {
+    use pyde_rust_sdk::CallRequest;
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_call"))
+        .respond_with(ok_response(json!("0xdeadbeef")))
+        .mount(&server)
+        .await;
+    let req = CallRequest {
+        to: format!("0x{}", "11".repeat(32)),
+        data: "0x".into(),
+        from: None,
+        value: None,
+        gas: None,
+    };
+    let out = provider.call(&req).await.unwrap();
+    assert_eq!(out, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+}
+
+#[tokio::test]
+async fn simulate_transaction_decodes() {
+    use pyde_rust_sdk::TxBuilder;
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_simulateTransaction"))
+        .respond_with(ok_response(json!({
+            "receipt": {
+                "status": "Success",
+                "gas_used": "0x5208",
+                "fee_paid": "0x1",
+                "return_data": "0x"
+            },
+            "access_list": {
+                "reads": [{ "slot": "0xaa", "observed_version": null }],
+                "writes": ["0xbb"]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let tx = TxBuilder::new()
+        .from(Address::new([0x42; 32]))
+        .build()
+        .unwrap();
+    let sim = provider.simulate_transaction(&tx).await.unwrap();
+    let receipt = sim.receipt.unwrap();
+    assert_eq!(receipt.status, "Success");
+    assert_eq!(sim.access_list.reads.len(), 1);
+    assert_eq!(sim.access_list.writes.len(), 1);
+}
+
+#[tokio::test]
+async fn get_tx_decodes_some_and_none() {
+    let (provider, server) = provider_with_server().await;
+    let hash = TxHash::new([0xAA; 32]);
+
+    // Stub null first.
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTx"))
+        .respond_with(ok_response(Value::Null))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    assert!(provider.get_tx(&hash).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn get_wave_decodes_some_and_none() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getWave"))
+        .respond_with(ok_response(Value::Null))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    assert!(provider.get_wave(5).await.unwrap().is_none());
+
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getWave"))
+        .respond_with(ok_response(json!({"wave_id": "0x5"})))
+        .mount(&server)
+        .await;
+    let v = provider.get_wave(5).await.unwrap();
+    assert!(v.is_some());
+}
+
+#[tokio::test]
+async fn get_validator_decodes() {
+    let (provider, server) = provider_with_server().await;
+    let addr = Address::new([0x77; 32]);
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getValidator"))
+        .respond_with(ok_response(Value::Null))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    assert!(provider.get_validator(&addr).await.unwrap().is_none());
+
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getValidator"))
+        .respond_with(ok_response(json!({
+            "address": addr.to_hex(),
+            "status": "Active",
+            "stake": "0x1234"
+        })))
+        .mount(&server)
+        .await;
+    let v = provider.get_validator(&addr).await.unwrap().unwrap();
+    assert_eq!(v["status"], "Active");
+}
+
+#[tokio::test]
+async fn get_operator_validators_decodes() {
+    let (provider, server) = provider_with_server().await;
+    let operator = Address::new([0x88; 32]);
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getOperatorValidators"))
+        .respond_with(ok_response(json!([
+            { "stake": "0x100" },
+            { "stake": "0x200" }
+        ])))
+        .mount(&server)
+        .await;
+    let validators = provider.get_operator_validators(&operator).await.unwrap();
+    assert_eq!(validators.len(), 2);
+}
+
+#[tokio::test]
+async fn get_snapshot_returns_value() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getSnapshot"))
+        .respond_with(ok_response(json!({
+            "wave_id": 100,
+            "state_root": "0xabcd"
+        })))
+        .mount(&server)
+        .await;
+    let v = provider.get_snapshot().await.unwrap();
+    assert_eq!(v["wave_id"], 100);
+}
+
+#[tokio::test]
+async fn get_snapshot_manifest_returns_value() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getSnapshotManifest"))
+        .respond_with(ok_response(json!({
+            "wave_id": 100,
+            "chunk_count": 4
+        })))
+        .mount(&server)
+        .await;
+    let v = provider.get_snapshot_manifest().await.unwrap();
+    assert_eq!(v["chunk_count"], 4);
+}

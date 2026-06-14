@@ -6,12 +6,13 @@
 //! input validation (`InvalidAddress`, `InvalidArgument`), and contract
 //! execution (`Reverted`, `InsufficientBalance`).
 //!
-//! Future work (T8): align error codes with [`HOST_FN_ABI_SPEC §4`].
-//! That spec defines 17 negative `i32` codes returned from host functions
-//! (`-1 = ERR_INVALID_INPUT`, `-5 = ERR_FORBIDDEN`, `-17 = ERR_SIGNATURE_INVALID`,
-//! etc.). When `Provider::call` surfaces one of those codes from a view
-//! call, the SDK will map it to a structured variant rather than wrapping
-//! the raw number in `SdkError::Other`.
+//! Deferred to v2: a structured mapping from HOST_FN_ABI §4's 17
+//! negative `i32` host-fn codes (`-1 = ERR_INVALID_INPUT`,
+//! `-5 = ERR_FORBIDDEN`, `-17 = ERR_SIGNATURE_INVALID`, …) onto
+//! dedicated [`SdkError`] variants. Today those codes surface as
+//! [`SdkError::Rpc`] / [`SdkError::Reverted`] with the raw payload
+//! attached; advanced callers can inspect the integer themselves
+//! until the structured map lands.
 
 use thiserror::Error;
 

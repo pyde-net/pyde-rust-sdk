@@ -57,6 +57,30 @@ pub struct Receipt {
     pub events: Vec<Event>,
 }
 
+/// Strict decode helper for hex `u64` fields.
+fn strict_u64_from_hex(s: &str, field: &str) -> Result<u64, crate::SdkError> {
+    u64::from_str_radix(s.trim_start_matches("0x"), 16)
+        .map_err(|e| crate::SdkError::InvalidResponse(format!("{field}: {e}")))
+}
+
+/// Strict decode helper for hex `u128` fields.
+fn strict_u128_from_hex(s: &str, field: &str) -> Result<u128, crate::SdkError> {
+    u128::from_str_radix(s.trim_start_matches("0x"), 16)
+        .map_err(|e| crate::SdkError::InvalidResponse(format!("{field}: {e}")))
+}
+
+/// Strict decode helper for hex `u32` fields.
+fn strict_u32_from_hex(s: &str, field: &str) -> Result<u32, crate::SdkError> {
+    u32::from_str_radix(s.trim_start_matches("0x"), 16)
+        .map_err(|e| crate::SdkError::InvalidResponse(format!("{field}: {e}")))
+}
+
+/// Strict decode helper for hex byte-array fields.
+fn strict_bytes_from_hex(s: &str, field: &str) -> Result<Vec<u8>, crate::SdkError> {
+    hex::decode(s.trim_start_matches("0x"))
+        .map_err(|e| crate::SdkError::InvalidResponse(format!("{field}: {e}")))
+}
+
 impl Receipt {
     /// `true` iff `status == Success`.
     #[must_use]
@@ -64,35 +88,79 @@ impl Receipt {
         matches!(self.status, ReceiptStatus::Success)
     }
 
-    /// Decode `gas_used` to `u64`.
+    /// Decode `gas_used` to `u64`. Returns `0` on malformed input;
+    /// use [`Self::try_gas`] for strict error handling.
     #[must_use]
     pub fn gas(&self) -> u64 {
-        u64::from_str_radix(self.gas_used.trim_start_matches("0x"), 16).unwrap_or(0)
+        self.try_gas().unwrap_or(0)
     }
 
-    /// Decode `fee_paid` to `u128` quanta.
+    /// Strict variant of [`Self::gas`] — returns
+    /// [`crate::SdkError::InvalidResponse`] if the hex is malformed
+    /// rather than silently yielding zero.
+    ///
+    /// # Errors
+    /// [`crate::SdkError::InvalidResponse`] on bad hex.
+    pub fn try_gas(&self) -> Result<u64, crate::SdkError> {
+        strict_u64_from_hex(&self.gas_used, "gas_used")
+    }
+
+    /// Decode `fee_paid` to `u128` quanta. Returns `0` on malformed
+    /// input; use [`Self::try_fee_paid_quanta`] for strict handling.
     #[must_use]
     pub fn fee_paid_quanta(&self) -> u128 {
-        u128::from_str_radix(self.fee_paid.trim_start_matches("0x"), 16).unwrap_or(0)
+        self.try_fee_paid_quanta().unwrap_or(0)
     }
 
-    /// Decode `wave_id` to `u64`.
+    /// Strict variant of [`Self::fee_paid_quanta`].
+    ///
+    /// # Errors
+    /// [`crate::SdkError::InvalidResponse`] on bad hex.
+    pub fn try_fee_paid_quanta(&self) -> Result<u128, crate::SdkError> {
+        strict_u128_from_hex(&self.fee_paid, "fee_paid")
+    }
+
+    /// Decode `wave_id` to `u64`. Returns `0` on malformed input.
     #[must_use]
     pub fn wave_id_u64(&self) -> u64 {
-        u64::from_str_radix(self.wave_id.trim_start_matches("0x"), 16).unwrap_or(0)
+        self.try_wave_id_u64().unwrap_or(0)
     }
 
-    /// Decode `tx_index` to `u32`.
+    /// Strict variant of [`Self::wave_id_u64`].
+    ///
+    /// # Errors
+    /// [`crate::SdkError::InvalidResponse`] on bad hex.
+    pub fn try_wave_id_u64(&self) -> Result<u64, crate::SdkError> {
+        strict_u64_from_hex(&self.wave_id, "wave_id")
+    }
+
+    /// Decode `tx_index` to `u32`. Returns `0` on malformed input.
     #[must_use]
     pub fn tx_index_u32(&self) -> u32 {
-        u32::from_str_radix(self.tx_index.trim_start_matches("0x"), 16).unwrap_or(0)
+        self.try_tx_index_u32().unwrap_or(0)
     }
 
-    /// Decode `return_data` as raw bytes.
+    /// Strict variant of [`Self::tx_index_u32`].
+    ///
+    /// # Errors
+    /// [`crate::SdkError::InvalidResponse`] on bad hex.
+    pub fn try_tx_index_u32(&self) -> Result<u32, crate::SdkError> {
+        strict_u32_from_hex(&self.tx_index, "tx_index")
+    }
+
+    /// Decode `return_data` as raw bytes. Returns empty on malformed
+    /// input; use [`Self::try_return_bytes`] for strict handling.
     #[must_use]
     pub fn return_bytes(&self) -> Vec<u8> {
-        let hex_str = self.return_data.trim_start_matches("0x");
-        hex::decode(hex_str).unwrap_or_default()
+        self.try_return_bytes().unwrap_or_default()
+    }
+
+    /// Strict variant of [`Self::return_bytes`].
+    ///
+    /// # Errors
+    /// [`crate::SdkError::InvalidResponse`] on bad hex.
+    pub fn try_return_bytes(&self) -> Result<Vec<u8>, crate::SdkError> {
+        strict_bytes_from_hex(&self.return_data, "return_data")
     }
 
     /// For `Deploy` receipts, the derived contract address.
@@ -115,7 +183,7 @@ impl Receipt {
 /// Pyde-native shape — note `contract_addr` (not `address` per the
 /// Ethereum convention) and the wave/tx/event triple positional
 /// identity. `topics` are 32-byte hashes per
-/// [HOST_FN_ABI §15.3](https://book.pyde.network/companion/HOST_FN_ABI_SPEC#§15.3);
+/// [HOST_FN_ABI §15.3](https://book.pyde.network/companion/HOST_FN_ABI_SPEC#153-event-emission);
 /// `data` is the non-indexed payload bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
@@ -444,19 +512,20 @@ pub struct WaveHeader {
     pub tx_count: Option<String>,
 }
 
-/// Alias for backward compatibility with the pre-pivot naming.
+/// Ethereum-vocabulary alias for [`WaveHeader`].
 ///
-/// `BlockHeader` and `WaveHeader` refer to the same wire shape;
-/// the project renamed "block" → "wave" but downstream consumers
-/// may still use the older name.
+/// Pyde calls a committed batch of transactions a "wave"; if you're
+/// porting code that uses the Ethereum-style `block` terminology,
+/// this alias lets you keep the old name.
 pub type BlockHeader = WaveHeader;
 
 // ── Log alias for backward-compat ──────────────────────────────
 
-/// Alias for backward compatibility with the pre-pivot naming.
+/// Ethereum-vocabulary alias for [`Event`].
 ///
-/// Pyde events are NOT Ethereum "logs" — they're a Pyde-native
-/// type ([`Event`]) with wave/tx/event positional identity. New
+/// Pyde events are NOT identical to Ethereum "logs" — they're a
+/// Pyde-native type with wave/tx/event positional identity — but
+/// the alias keeps Ethereum-tooling muscle memory working. New
 /// code should use [`Event`] directly.
 pub type Log = Event;
 

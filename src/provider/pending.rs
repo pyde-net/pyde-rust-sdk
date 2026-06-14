@@ -91,14 +91,28 @@ impl PendingTx {
     ///   `get_transaction_receipt` call.
     pub async fn wait_for_receipt(&self) -> Result<Receipt, SdkError> {
         let deadline = std::time::Instant::now() + self.timeout;
+        let expected_hex = format!("0x{}", hex::encode(self.hash.as_bytes()));
         loop {
             if let Some(receipt) = self.provider.get_transaction_receipt(&self.hash).await? {
+                // Cross-check the receipt's tx_hash matches the
+                // hash we polled for. Without this a malicious /
+                // racing node could serve a receipt for a different
+                // tx and the SDK would happily report success.
+                if !receipt
+                    .tx_hash
+                    .trim_start_matches("0x")
+                    .eq_ignore_ascii_case(expected_hex.trim_start_matches("0x"))
+                {
+                    return Err(SdkError::InvalidResponse(format!(
+                        "receipt tx_hash {} doesn't match polled hash {expected_hex}",
+                        receipt.tx_hash
+                    )));
+                }
                 return Ok(receipt);
             }
             if std::time::Instant::now() >= deadline {
                 return Err(SdkError::Timeout(format!(
-                    "tx 0x{} did not commit within {:?}",
-                    hex::encode(self.hash.as_bytes()),
+                    "tx {expected_hex} did not commit within {:?}",
                     self.timeout
                 )));
             }

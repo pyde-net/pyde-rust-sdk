@@ -61,6 +61,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use pyde_rust_sdk::constants::{
+    GAS_CROSS_CALL_ORCHESTRATOR, GAS_DEPLOY, GAS_ERC20_CALL, GAS_ERC721_CALL,
+};
 use pyde_rust_sdk::contract::{decode_value, Contract};
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::types::{ContractType, ParamType, Tx};
@@ -158,7 +161,7 @@ async fn deploy_contract(
     let receipt = send_tx(provider, dyn_provider, deployer, chain_id, |b| {
         Ok(b.deploy(name, wasm, ContractType::Contract, init_calldata)
             .map_err(|e| anyhow::anyhow!(e))?
-            .gas_limit(10_000_000))
+            .gas_limit(GAS_DEPLOY))
     })
     .await?;
     let address = Address::from_contract_name(name);
@@ -306,7 +309,7 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc20.address()).data(data).gas_limit(500_000))
+        Ok(b.to(erc20.address()).data(data).gas_limit(GAS_ERC20_CALL))
     })
     .await?;
 
@@ -329,7 +332,7 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc721.address()).data(data).gas_limit(1_000_000))
+        Ok(b.to(erc721.address()).data(data).gas_limit(GAS_ERC721_CALL))
     })
     .await?;
     // mint() returns the new token_id as a u64.
@@ -355,7 +358,7 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc721.address()).data(data).gas_limit(500_000))
+        Ok(b.to(erc721.address()).data(data).gas_limit(GAS_ERC20_CALL))
     })
     .await?;
 
@@ -369,7 +372,9 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(marketplace.address()).data(data).gas_limit(500_000))
+        Ok(b.to(marketplace.address())
+            .data(data)
+            .gas_limit(GAS_ERC20_CALL))
     })
     .await?;
     let listing_id = {
@@ -390,7 +395,7 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc20.address()).data(data).gas_limit(500_000))
+        Ok(b.to(erc20.address()).data(data).gas_limit(GAS_ERC20_CALL))
     })
     .await?;
 
@@ -403,7 +408,9 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(marketplace.address()).data(data).gas_limit(2_000_000))
+        Ok(b.to(marketplace.address())
+            .data(data)
+            .gas_limit(GAS_CROSS_CALL_ORCHESTRATOR))
     })
     .await?;
     println!(

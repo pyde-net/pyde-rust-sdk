@@ -31,6 +31,7 @@ argon2 = "0.5"        # password-based KDF for at-rest secret-key storage
 aes-gcm = "0.10"      # AEAD wrapping the encrypted key material
 rand = "0.8"
 zeroize = { version = "1", features = ["alloc"] }
+subtle = "2"          # constant-time byte-slice compare for FALCON pubkey eq
 
 # ── WASM ABI parsing (T10) ───────────────────────────────────────────
 wasmparser = "0.220"  # walks deployed contract bytecode to find pyde.abi custom section

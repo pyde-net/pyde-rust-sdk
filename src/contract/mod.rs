@@ -30,7 +30,9 @@
 pub mod codec;
 pub mod runtime;
 
-pub use codec::{decode_return, decode_value, encode_calldata, encode_value, Value};
+pub use codec::{
+    decode_return, decode_value, encode_calldata, encode_value, Value, MAX_DECODE_ELEMENTS,
+};
 pub use runtime::{event_signature_topic, Contract, DecodedEvent};
 
 /// Re-export of the `pyde_abi!` proc-macro (defined in the
