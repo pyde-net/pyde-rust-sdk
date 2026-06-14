@@ -53,6 +53,7 @@ pub mod abi;
 pub mod constants;
 pub mod contract;
 pub mod error;
+pub mod multisig;
 pub mod provider;
 pub mod signer;
 pub mod tx;

@@ -384,6 +384,40 @@ impl TxBuilder {
         self.tx_type(TxType::Standard).to(contract).data(calldata)
     }
 
+    /// Configure this builder as a treasury multisig spend.
+    ///
+    /// Sets `tx_type = MultisigTx`, `to = Address::ZERO` (envelope-
+    /// style), and `data` to the Borsh encoding of
+    /// [`crate::multisig::MultisigTxPayload`]. The bundle must
+    /// contain `>= MultisigState::threshold` valid signatures over
+    /// [`crate::multisig::canonical_msg`] for the on-chain treasury
+    /// nonce; the chain verifies + bumps the nonce on commit.
+    ///
+    /// Treasury txs are NOT signed at the tx level — the bundle is
+    /// the authorisation. After `.build()`, submit the tx unsigned.
+    ///
+    /// # Errors
+    /// Returns [`SdkError::Other`] if Borsh encoding fails (not
+    /// reachable for fixed-size inputs + a well-formed bundle).
+    pub fn multisig_treasury_spend(
+        self,
+        target: Address,
+        amount: u128,
+        bundle: crate::multisig::SigBundle,
+    ) -> Result<Self, SdkError> {
+        let payload = crate::multisig::MultisigTxPayload {
+            target,
+            amount,
+            bundle,
+        };
+        let data = borsh::to_vec(&payload)
+            .map_err(|e| SdkError::Other(format!("borsh encode MultisigTxPayload: {e}")))?;
+        Ok(self
+            .tx_type(TxType::MultisigTx)
+            .to(Address::ZERO)
+            .data(data))
+    }
+
     /// Build an unsigned [`Tx`].
     ///
     /// # Errors
