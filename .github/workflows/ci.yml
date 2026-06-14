@@ -17,7 +17,7 @@ jobs:
     name: fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install toolchain
         run: rustup show
       - name: cargo fmt --all -- --check
@@ -33,11 +33,11 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: pyde-rust-sdk
       - name: Checkout sibling pyde-crypto
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
@@ -66,11 +66,11 @@ jobs:
     name: msrv (1.75)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: pyde-rust-sdk
       - name: Checkout sibling pyde-crypto
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
@@ -87,11 +87,11 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: pyde-rust-sdk
       - name: Checkout sibling pyde-crypto
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
@@ -124,7 +124,7 @@ jobs:
     name: cargo audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - name: cargo audit
@@ -137,11 +137,11 @@ jobs:
     env:
       RUSTDOCFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: pyde-rust-sdk
       - name: Checkout sibling pyde-crypto
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
@@ -160,11 +160,11 @@ jobs:
     name: examples
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: pyde-rust-sdk
       - name: Checkout sibling pyde-crypto
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
