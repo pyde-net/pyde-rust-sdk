@@ -1,0 +1,85 @@
+[contract]
+name        = "access-guard"
+version     = "0.1.0"
+description = "Demonstrates Pyde's halt mechanisms: explicit revert, named-code revert, integer-code revert, WASM trap. Used by the SDK's halt_methods E2E example."
+type        = "contract"
+
+[contract.lang]
+language = "go"
+output   = "build/contract.wasm"
+
+[contract.lang.toolchain]
+tinygo_version = "0.41.0"
+
+[deploy]
+gas_limit = 10_000_000
+gas_price = "auto"
+
+[network.default]
+name = "devnet"
+
+[network.devnet]
+rpc_url  = "http://localhost:9933"
+chain_id = 31337
+
+[state]
+schema = [
+    { name = "admin",   type = "address" },
+    { name = "counter", type = "uint64" },
+]
+
+# Sets caller as admin at deploy time.
+[functions.init]
+attributes = ["constructor"]
+inputs     = []
+outputs    = []
+
+# Read the stored admin (for the SDK to verify).
+[functions.get_admin]
+attributes = ["entry", "view"]
+inputs     = []
+outputs    = ["address"]
+
+# Read the counter.
+[functions.get_count]
+attributes = ["entry", "view"]
+inputs     = []
+outputs    = ["uint64"]
+
+# Increments the counter — but ONLY if caller == admin.
+# Otherwise reverts with "unauthorized: caller is not admin".
+[functions.admin_bump]
+attributes = ["entry"]
+inputs     = ["uint64"]
+outputs    = ["uint64"]
+
+# ── Halt-method demonstrators ─────────────────────────────────────
+
+# Reverts with a custom UTF-8 message — exercises the
+# SDK's plain-message revert_reason() decode path.
+[functions.cause_revert_with_message]
+attributes = ["entry"]
+inputs     = []
+outputs    = []
+
+# Reverts with a message containing a canonical "ERR_*" token —
+# exercises the SDK's named-token error_code() extraction.
+[functions.cause_revert_with_err_forbidden]
+attributes = ["entry"]
+inputs     = []
+outputs    = []
+
+# Reverts with a message containing a negative integer in the
+# spec table — exercises the SDK's integer-parse error_code()
+# fallback.
+[functions.cause_revert_with_negative_code]
+attributes = ["entry"]
+inputs     = []
+outputs    = []
+
+# Triggers a WASM trap via an unconditional unreachable — the
+# engine returns ERR_CROSS_CALL_FAILED with no revert payload.
+[functions.cause_panic]
+attributes = ["entry"]
+inputs     = []
+outputs    = []
