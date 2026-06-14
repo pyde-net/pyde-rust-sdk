@@ -5,8 +5,9 @@
 #   2. github-actions — the action versions in .github/workflows/
 #
 # All updates land as PRs labelled `dependencies`. Security updates
-# are grouped + raised regardless of schedule; non-security updates
-# follow the weekly cadence so the SDK doesn't drown in upgrade PRs.
+# are raised regardless of schedule; non-security updates follow the
+# monthly cadence so the SDK doesn't drown in upgrade PRs. Minor +
+# patch are grouped — multiple deps land in one PR.
 
 version: 2
 
@@ -14,8 +15,7 @@ updates:
   - package-ecosystem: cargo
     directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "08:00"
       timezone: "Africa/Lagos"
     open-pull-requests-limit: 5
@@ -35,8 +35,7 @@ updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "08:00"
       timezone: "Africa/Lagos"
     open-pull-requests-limit: 3
