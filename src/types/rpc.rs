@@ -444,19 +444,20 @@ pub struct WaveHeader {
     pub tx_count: Option<String>,
 }
 
-/// Alias for backward compatibility with the pre-pivot naming.
+/// Ethereum-vocabulary alias for [`WaveHeader`].
 ///
-/// `BlockHeader` and `WaveHeader` refer to the same wire shape;
-/// the project renamed "block" → "wave" but downstream consumers
-/// may still use the older name.
+/// Pyde calls a committed batch of transactions a "wave"; if you're
+/// porting code that uses the Ethereum-style `block` terminology,
+/// this alias lets you keep the old name.
 pub type BlockHeader = WaveHeader;
 
 // ── Log alias for backward-compat ──────────────────────────────
 
-/// Alias for backward compatibility with the pre-pivot naming.
+/// Ethereum-vocabulary alias for [`Event`].
 ///
-/// Pyde events are NOT Ethereum "logs" — they're a Pyde-native
-/// type ([`Event`]) with wave/tx/event positional identity. New
+/// Pyde events are NOT identical to Ethereum "logs" — they're a
+/// Pyde-native type with wave/tx/event positional identity — but
+/// the alias keeps Ethereum-tooling muscle memory working. New
 /// code should use [`Event`] directly.
 pub type Log = Event;
 

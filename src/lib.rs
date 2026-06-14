@@ -15,19 +15,31 @@
 //! ## Quick start
 //!
 //! ```rust,ignore
-//! use pyde_rust_sdk::{Wallet, util, tx::TxBuilder, types::Address};
+//! use std::sync::Arc;
+//! use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
+//! use pyde_rust_sdk::{Provider, Signer, TxBuilder, Wallet};
+//! use pyde_rust_sdk::types::Address;
+//! use pyde_rust_sdk::util::parse_quanta;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
+//!     let transport = HttpTransport::new("http://127.0.0.1:8545")?;
+//!     let provider = Arc::new(RootProvider::new(transport));
 //!     let wallet = Wallet::generate()?;
 //!     let recipient = Address::from_hex("0xaa…")?;
 //!
+//!     let chain_id = provider.chain_id().await?;
+//!     let nonce = provider.get_nonce(&wallet.address()).await?;
 //!     let mut tx = TxBuilder::new()
 //!         .from(wallet.address())
-//!         .transfer(recipient, util::parse_quanta("1.5")?)
+//!         .chain_id(chain_id)
+//!         .nonce(nonce)
+//!         .transfer(recipient, parse_quanta("1.5")?)
 //!         .build()?;
 //!     wallet.sign_tx(&mut tx).await?;
-//!     // Provider lands in T9 — submit via `provider.send_raw_transaction(tx)`.
+//!     let pending = provider.send_transaction(&tx).await?;
+//!     let receipt = pending.wait_for_receipt().await?;
+//!     println!("committed in wave {}", receipt.wave_id_u64());
 //!     Ok(())
 //! }
 //! ```

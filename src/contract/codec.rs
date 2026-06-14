@@ -353,7 +353,7 @@ fn read_value(ty: &ParamType, slice: &mut &[u8]) -> Result<Value, SdkError> {
             Value::FixedBytes(bytes)
         }
         P::Vec(inner) => {
-            let count = read_borsh::<u32>(slice)? as usize;
+            let count = decode_count(slice, "Vec")?;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
                 items.push(read_value(inner, slice)?);
@@ -361,7 +361,7 @@ fn read_value(ty: &ParamType, slice: &mut &[u8]) -> Result<Value, SdkError> {
             Value::Vec(items)
         }
         P::Map { key, value } => {
-            let count = read_borsh::<u32>(slice)? as usize;
+            let count = decode_count(slice, "Map")?;
             let mut pairs = Vec::with_capacity(count);
             for _ in 0..count {
                 let k = read_value(key, slice)?;
@@ -392,6 +392,33 @@ fn read_value(ty: &ParamType, slice: &mut &[u8]) -> Result<Value, SdkError> {
             Value::Custom(bytes)
         }
     })
+}
+
+/// Hard cap on the element count any single length-prefixed Vec or
+/// Map decoder will materialise.
+///
+/// `u32::MAX` is the theoretical Borsh ceiling, but a malicious
+/// upstream can ship a `[0xff, 0xff, 0xff, 0xff, …]` prefix and force
+/// the SDK to `Vec::with_capacity(4 billion)` — instant OOM. 1M
+/// elements is well above any plausible legitimate response (the
+/// engine's tx-size cap is 128 KiB so a single `Vec<u8>` field can
+/// hold at most that many bytes, and other field types are larger
+/// per element) while keeping the allocation bounded.
+pub const MAX_DECODE_ELEMENTS: usize = 1_000_000;
+
+/// Read a `u32` length prefix and reject any count larger than
+/// [`MAX_DECODE_ELEMENTS`]. Used by every variable-length decoder
+/// path; the bound is the SDK's first line of defence against a
+/// malicious server (or corrupt contract return).
+fn decode_count(slice: &mut &[u8], label: &str) -> Result<usize, SdkError> {
+    let raw = read_borsh::<u32>(slice)? as usize;
+    if raw > MAX_DECODE_ELEMENTS {
+        return Err(SdkError::InvalidResponse(format!(
+            "{label}: declared length {raw} exceeds MAX_DECODE_ELEMENTS \
+             ({MAX_DECODE_ELEMENTS}) — refusing to allocate"
+        )));
+    }
+    Ok(raw)
 }
 
 fn read_borsh<T: BorshDeserialize>(slice: &mut &[u8]) -> Result<T, SdkError> {

@@ -63,6 +63,15 @@ type WsRead = SplitStream<WsStream>;
 /// back-pressure policy alloy's WS provider uses.
 const SUBSCRIPTION_CHANNEL_DEPTH: usize = 1024;
 
+/// Maximum distinct sub_ids we'll buffer notifications for before a
+/// caller has registered the matching receiver. Stops a malicious
+/// server from flooding `pending_notifs` with junk sub_ids.
+const MAX_PENDING_NOTIF_BUCKETS: usize = 128;
+
+/// Maximum events queued per pending sub_id bucket. Caps the worst-
+/// case memory a single attacker-controlled bucket can pin.
+const MAX_PENDING_NOTIF_DEPTH: usize = 256;
+
 /// WebSocket transport for the SDK's JSON-RPC client + subscription
 /// surface.
 ///
@@ -213,14 +222,24 @@ async fn dispatch_frame(text: &str, inner: &Arc<WsInner>) {
                         // between `pyde_subscribe` response landing
                         // and the SDK caller wiring the receiver).
                         // Buffer the event for
-                        // `register_subscription` to drain.
-                        inner
-                            .pending_notifs
-                            .lock()
-                            .await
-                            .entry(sub_id.to_string())
-                            .or_default()
-                            .push(result);
+                        // `register_subscription` to drain — but cap
+                        // both the bucket depth and the total number
+                        // of buckets so a malicious server can't
+                        // flood the map with junk sub_ids.
+                        let mut notifs = inner.pending_notifs.lock().await;
+                        let bucket_exists = notifs.contains_key(sub_id);
+                        if bucket_exists || notifs.len() < MAX_PENDING_NOTIF_BUCKETS {
+                            let bucket = notifs.entry(sub_id.to_string()).or_default();
+                            if bucket.len() < MAX_PENDING_NOTIF_DEPTH {
+                                bucket.push(result);
+                            }
+                            // Else: bucket full → drop. Genuine
+                            // receivers will register before this
+                            // matters; an attacker can't grow it
+                            // past MAX_PENDING_NOTIF_DEPTH.
+                        }
+                        // Else: too many unknown sub_ids queued →
+                        // drop the frame entirely.
                     }
                 }
             }
