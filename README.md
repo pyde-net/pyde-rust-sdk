@@ -140,6 +140,14 @@ PYDE_RPC_URL=http://127.0.0.1:8545 PYDE_CONTRACT_NAME=counter cargo run --exampl
 PYDE_WS_URL=ws://127.0.0.1:8546 cargo run --example subscribe_logs
 ```
 
+## Upstream notes
+
+[`docs/upstream-asks.md`](docs/upstream-asks.md) tracks drift the
+SDK has surfaced in the engine + otigen toolchain repos. SDK-side
+workarounds are baked into the examples so live integration works
+today; each item collapses out once the corresponding upstream
+patch lands.
+
 ## Compatibility
 
 - **Chain wire format**: every type the SDK puts on the wire is byte-for-byte identical to its counterpart in `engine/crates/types/`. Hash algorithm (`tx_hash`), Borsh field order, and `TxType` / `FeePayer` / `AuthKeys` tag values all match.
