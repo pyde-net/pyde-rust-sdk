@@ -112,6 +112,24 @@ jobs:
         working-directory: pyde-rust-sdk
         run: cargo test --workspace --no-fail-fast
 
+  # ── audit ────────────────────────────────────────────────────
+  # cargo-audit against the RustSec advisory DB. Mirrors ts-sdk's
+  # `npm audit --omit=dev --audit-level=high`: fails on actual
+  # vulnerabilities, surfaces unmaintained-crate warnings without
+  # blocking (those are usually transitive + out of our control).
+  #
+  # Doesn't need the sibling pyde-crypto checkout — cargo-audit
+  # operates on Cargo.lock alone, doesn't fetch deps.
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: cargo audit
+        run: cargo audit
+
   # ── doc ──────────────────────────────────────────────────────
   doc:
     name: doc

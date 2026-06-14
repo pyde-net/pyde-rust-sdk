@@ -1,2 +1,12 @@
 /target
-Cargo.lock
+
+# Common dev-environment leftovers
+*.log
+.DS_Store
+.env
+.env.local
+.idea/
+.vscode/
+
+# Cargo.lock IS committed (modern Rust guidance, even for libs —
+# pins what was tested + reproducible CI + cargo-audit needs it).
