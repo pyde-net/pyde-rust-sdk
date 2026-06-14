@@ -23,6 +23,7 @@
 pub mod abi;
 pub mod account;
 pub mod address;
+pub mod error_code;
 pub mod falcon;
 pub mod hash;
 pub mod rpc;
@@ -38,6 +39,13 @@ pub use account::{
     AccountType, AuthKeys, Balance, InvalidAuthKeys, Nonce, MAX_MULTISIG_SIGNERS, NONCE_WINDOW_SIZE,
 };
 pub use address::{Address, ADDRESS_LEN, CONTRACT_ADDRESS_PREFIX, CREATE2_PREFIX};
+pub use error_code::{
+    ErrorCode, ERR_ACCESS_LIST_VIOLATION, ERR_CIPHERTEXT_INVALID, ERR_CROSS_CALL_FAILED,
+    ERR_CROSS_CALL_OUT_OF_GAS, ERR_FORBIDDEN, ERR_INSUFFICIENT_BALANCE, ERR_INTERNAL,
+    ERR_INVALID_ADDRESS, ERR_INVALID_FUNCTION_NAME, ERR_INVALID_INPUT, ERR_NOT_FOUND,
+    ERR_OUTPUT_BUFFER_TOO_SMALL, ERR_OUT_OF_GAS, ERR_PARACHAIN_ONLY, ERR_REENTRANCY_BLOCKED,
+    ERR_SIGNATURE_INVALID, ERR_VALUE_TRANSFER_NOT_PAYABLE, ERR_XCALL_RATE_LIMITED,
+};
 pub use falcon::{
     FalconPubkey, FalconSecret, FalconSignature, FALCON_PUBKEY_LEN, FALCON_SECRET_LEN,
     FALCON_SIG_MAX_LEN,

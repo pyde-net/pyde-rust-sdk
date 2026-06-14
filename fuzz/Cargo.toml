@@ -1,0 +1,65 @@
+[package]
+name = "pyde-rust-sdk-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+borsh = { version = "1", features = ["derive"] }
+serde_json = "1"
+pyde-rust-sdk = { path = ".." }
+
+# ── Fuzz targets ──────────────────────────────────────────────
+# Run any one with:
+#   cargo +nightly fuzz run <target-name>
+#
+# The targets are coverage-guided libFuzzer harnesses that feed
+# random bytes into the SDK's deserialization / parsing paths. None
+# of them should ever panic — failures are real bugs.
+
+[[bin]]
+name = "fuzz_value_decode"
+path = "fuzz_targets/fuzz_value_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_tx_decode"
+path = "fuzz_targets/fuzz_tx_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_jsonrpc_response"
+path = "fuzz_targets/fuzz_jsonrpc_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_revert_reason"
+path = "fuzz_targets/fuzz_revert_reason.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_extract_error_code"
+path = "fuzz_targets/fuzz_extract_error_code.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_abi_extract"
+path = "fuzz_targets/fuzz_abi_extract.rs"
+test = false
+doc = false
+bench = false
