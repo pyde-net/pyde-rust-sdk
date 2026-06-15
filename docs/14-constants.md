@@ -160,6 +160,24 @@ knowing:
 | Max concurrent subscriptions per transport | `128` | 129th subscription is dropped. |
 | Max queued events per subscription | `256` | Events past this cap drop the slowest reader. |
 
+### Engine-side encrypted-mempool size limits
+
+The chain rejects `pyde_sendRawEncryptedTransaction` envelopes
+outside these bounds. The SDK doesn't enforce them client-side
+(no point — wire would still fail) but documents them so
+wallet code can pre-validate:
+
+| Cap | Value | What |
+|---|---|---|
+| Min ciphertext | `1213` bytes | Kyber-768 KEM ciphertext + ChaCha20-Poly1305 AEAD + 1-byte inner-Tx floor. Anything below this is structurally invalid. |
+| Max ciphertext | `128 KiB` | Engine v1 cap. Plaintext `Tx` is well under this; the limit protects against malformed envelopes blowing the mempool. |
+
+Submission outside the range surfaces as `SdkError::Rpc`
+carrying the engine's `EncryptedAdmissionError` variant
+(`CiphertextTooSmall` / `CiphertextTooLarge`). See
+[Providers §6.3 `send_raw_encrypted_transaction`](06-providers.md#send_raw_encrypted_transactionenvelope_hex)
+for the full error list.
+
 ---
 
 ## 14.6 Pending tx defaults
