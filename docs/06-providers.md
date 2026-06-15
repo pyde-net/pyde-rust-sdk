@@ -232,6 +232,28 @@ println!("{} PYDE ({} quanta)", format_quanta(bal), bal);
 | Wire | `pyde_getAccount` |
 | Returns | `AccountInfo { account_type, balance, nonce, code_hash, auth_keys, … }`. |
 
+**No `Option` wrapping.** The engine synthesises a fresh-EOA
+fallback (`account_type: "eoa"`, `balance: 0`, `nonce: 0`,
+zero code + storage roots) for addresses it has never seen.
+You always get an `AccountInfo` back; you never get `None`.
+
+If you actually need "is this a real on-chain account?" rather
+than "give me the record":
+
+```rust
+# use pyde_rust_sdk::types::{Address, AccountInfo};
+# fn run(info: AccountInfo) -> bool {
+let is_real = info.balance > 0
+    || info.nonce > 0
+    || info.code_hash != [0u8; 32];
+is_real
+# }
+```
+
+(The fallback exists so wallets can quote a zero balance for a
+brand-new recipient before any tx funds it — no separate
+"address exists?" round-trip needed.)
+
 #### `get_contract_code(addr)`
 
 | | |

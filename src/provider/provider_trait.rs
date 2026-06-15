@@ -65,6 +65,14 @@ pub trait Provider: Send + Sync {
 
     /// `pyde_getAccount` — the full account record (type, balance,
     /// nonce, code hash, storage root).
+    ///
+    /// Returns `AccountInfo` (never `Option`) — for addresses the
+    /// chain has never seen, the engine synthesises a fresh-EOA
+    /// fallback record (`account_type: "eoa"`, `balance: 0`,
+    /// `nonce: 0`, zero code/storage roots). Callers needing
+    /// "is this a real on-chain account?" should check
+    /// `balance > 0 || nonce > 0 || code_hash != ZERO` rather
+    /// than expecting `None` for unseen addresses.
     async fn get_account(&self, addr: &Address) -> Result<AccountInfo, SdkError>;
 
     /// `pyde_getContractCode` — deployed WASM bytecode for the
