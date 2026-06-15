@@ -239,7 +239,117 @@ Every release goes into [CHANGELOG.md](../CHANGELOG.md), in
 
 ---
 
-## 12.9 Reporting drift
+## 12.9 Migration: `get_receipt` return type (Unreleased)
+
+If you're tracking `main` past T27 (commit `c503490`),
+`Provider::get_receipt` changed shape. **Hot-state callers
+should switch to `get_transaction_receipt`** — same data, no
+code changes beyond the method name.
+
+### What changed
+
+```diff
+- async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>;
++ async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError>;
+```
+
+The trait-level doc previously claimed `get_receipt` and
+`get_transaction_receipt` returned "the same shape." That was
+wrong — the engine emits them via two distinct paths:
+
+| Method | Engine path | Wire shape |
+|---|---|---|
+| `pyde_getTransactionReceipt` | custom `receipt_to_json()` formatter | All-hex strings + snake_case status |
+| `pyde_getReceipt` | raw `serde_json::to_value(Receipt)` | Byte-array `tx_hash`, raw integers, PascalCase status |
+
+The engine team confirmed in the [RPC catalog](https://github.com/pyde-net/engine)
+(gotcha #1) that both shapes are stable contracts — the
+divergence won't be unified server-side. The SDK now carries
+one deserializer per method.
+
+### Which method should you use?
+
+Decision tree:
+
+1. **You're a wallet / dapp polling for "did my tx commit?"** —
+   Use `get_transaction_receipt(hash)`. Returns `Option<Receipt>`
+   (unchanged). Hot-state path; matches `PendingTx::wait_for_receipt`.
+
+2. **You're an explorer / indexer doing archival lookups past
+   the hot-state TTL** — Use `get_receipt(hash)`. Returns
+   `Option<RawReceipt>` (new type). Reads from the consensus
+   archive.
+
+3. **You don't know which one** — Default to
+   `get_transaction_receipt`. It falls through to the consensus
+   archive automatically when the hot state has aged out.
+
+### Migrating code
+
+#### Path 1 — you used `get_receipt` for hot-state polling
+
+Just rename:
+
+```diff
+- let receipt = provider.get_receipt(&hash).await?;
++ let receipt = provider.get_transaction_receipt(&hash).await?;
+  match receipt {
+      Some(r) if r.is_success() => { /* unchanged */ }
+      // ...
+  }
+```
+
+No other code changes — `Receipt` and its accessors
+(`r.is_success()`, `r.gas()`, `r.fee_paid_quanta()`,
+`r.wave_id_u64()`, `r.tx_index_u32()`) work identically.
+
+#### Path 2 — you genuinely need the archival shape
+
+Switch to the new `RawReceipt` type. The field names match
+`Receipt` but the types are different — accessors are
+unnecessary because the integers are already integers, not
+hex strings:
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::types::{RawReceipt, RawReceiptStatus, TxHash};
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>, hash: TxHash) -> pyde_rust_sdk::Result<()> {
+match provider.get_receipt(&hash).await? {
+    Some(receipt) => {
+        // Direct field access — no hex parsing needed.
+        let wave = receipt.wave_id;                // u64, raw
+        let gas = receipt.gas_used;                // u64, raw
+        let fee = receipt.fee_paid;                // u128, raw
+        let ok = matches!(receipt.status, RawReceiptStatus::Success);
+        let tx_hash_bytes: [u8; 32] = receipt.tx_hash;  // raw byte array
+
+        println!("archival receipt: wave {wave} gas {gas} fee {fee} ok={ok}");
+        let _ = tx_hash_bytes;
+    }
+    None => println!("not in consensus archive (may still be in hot state)"),
+}
+# Ok(()) }
+```
+
+### Bridging the two
+
+If you need a single function that handles both shapes
+(e.g., explorer fallback code), convert `RawReceiptStatus` →
+`ReceiptStatus` via the provided `From` impl and write a small
+adapter:
+
+```rust,no_run
+# use pyde_rust_sdk::types::{RawReceipt, ReceiptStatus};
+fn raw_is_success(r: &RawReceipt) -> bool {
+    let status: ReceiptStatus = r.status.into();
+    matches!(status, ReceiptStatus::Success)
+}
+```
+
+---
+
+## 12.10 Reporting drift
 
 Found a wire-format claim in these docs that doesn't match the
 engine? File an issue at

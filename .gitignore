@@ -10,3 +10,8 @@
 
 # Cargo.lock IS committed (modern Rust guidance, even for libs —
 # pins what was tested + reproducible CI + cargo-audit needs it).
+
+# cargo-fuzz build artifacts
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
