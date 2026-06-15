@@ -1,6 +1,6 @@
 //! The [`Provider`] trait + the concrete [`RootProvider`] dispatcher.
 //!
-//! All 23 RPC methods the engine exposes today, plus convenience
+//! All 26 RPC methods the engine exposes today, plus convenience
 //! sugar for typed Borsh payloads and PYDE↔quanta conversion at
 //! the SDK boundary.
 
@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 
 use crate::error::SdkError;
 use crate::types::{
-    AccountInfo, Address, CallRequest, Event, EventFilter, LogFilter, LogPage, NodeInfo, Receipt,
-    SimulationResult, Tx, TxHash,
+    AccountInfo, Address, CallRequest, Event, EventFilter, LogFilter, LogPage, NodeInfo,
+    RawReceipt, Receipt, SimulationResult, ThresholdPublicKey, Tx, TxHash,
 };
 
 use super::pending::PendingTx;
@@ -115,6 +115,34 @@ pub trait Provider: Send + Sync {
     /// bytes, and submits. Returns the engine-computed [`TxHash`].
     async fn send_raw_transaction(&self, tx: &Tx) -> Result<TxHash, SdkError>;
 
+    /// `pyde_sendRawEncryptedTransaction` — submit a threshold-encrypted
+    /// transaction envelope for MEV protection.
+    ///
+    /// The caller must first encrypt a plaintext `Tx` under the
+    /// chain's current threshold pubkey (from
+    /// [`Self::get_threshold_public_key`]) and produce a borsh-encoded
+    /// `EncryptedTxEnvelope` (version byte + ciphertext). This method
+    /// takes that envelope as hex.
+    ///
+    /// Returns the 32-byte Blake3 envelope hash. **NOT** the inner
+    /// `tx_hash` — that lives on the plaintext and is only knowable
+    /// post-decryption. Receipts go under the plaintext hash; use
+    /// `pyde_getReceipt` polling on it.
+    ///
+    /// v1 mock-DKG warning: if [`Self::get_threshold_public_key`]
+    /// reports `scheme: "mock"`, submitted envelopes won't be
+    /// processed until real Kyber-768 crypto lands. Treat
+    /// `scheme != "kyber-768"` as "encrypted path unavailable."
+    ///
+    /// Size limits (engine v1): min 1213 bytes, max 128 KiB.
+    ///
+    /// # Errors
+    /// - `InvalidArgument` for hex / borsh decode failures.
+    /// - `Rpc` for mempool admission failures
+    ///   (`AlreadyKnown`, `PoolFull`, `UnsupportedVersion`,
+    ///   `CiphertextTooSmall`, `CiphertextTooLarge`).
+    async fn send_raw_encrypted_transaction(&self, envelope_hex: &str) -> Result<TxHash, SdkError>;
+
     /// `pyde_call` — read-only contract view call.
     ///
     /// Returns the contract's `pyde::return(...)` bytes. Use the
@@ -139,12 +167,32 @@ pub trait Provider: Send + Sync {
     async fn get_transaction_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>;
 
     /// `pyde_getReceipt` — committed receipt from the consensus
-    /// store (same shape as [`Provider::get_transaction_receipt`]
-    /// but sourced from the longer-lived consensus archive vs the
-    /// active state's hot map).
-    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>;
+    /// archive (sourced from the longer-lived consensus_store vs
+    /// the hot active-state map [`Self::get_transaction_receipt`]
+    /// reads from).
+    ///
+    /// **Different wire shape from `get_transaction_receipt`.** The
+    /// engine emits this method's response via raw
+    /// `serde_json::to_value(Receipt)` — numeric fields as raw
+    /// integers, `tx_hash` as a `[u8; 32]` JSON array, `status`
+    /// as PascalCase. Hence the [`RawReceipt`] return type;
+    /// see its doc for the field-by-field delta vs [`Receipt`].
+    ///
+    /// Use this for archival queries (e.g., explorer back-pages
+    /// past the hot-state TTL). For dapps + wallets that just
+    /// want "did my tx commit?" use
+    /// [`Self::get_transaction_receipt`] — it hits the same
+    /// underlying data via the hot path and emits the friendlier
+    /// hex-string shape.
+    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError>;
 
     /// `pyde_getTx` — full committed transaction by hash.
+    ///
+    /// Engine emits raw `serde_json::to_value(Tx)`; our derived
+    /// `Deserialize` on [`Tx`] handles this because the embedded
+    /// types ([`Address`], [`crate::types::FalconSignature`],
+    /// `FeePayer`) all use derived serde that aligns. No separate
+    /// type needed.
     async fn get_tx(&self, hash: &TxHash) -> Result<Option<Tx>, SdkError>;
 
     /// `pyde_getWave` — opaque wave record by id.
@@ -152,6 +200,40 @@ pub trait Provider: Send + Sync {
     /// Returned as raw [`Value`]; advanced callers
     /// `serde_json::from_value` into their own typed struct.
     async fn get_wave(&self, wave_id: u64) -> Result<Option<Value>, SdkError>;
+
+    /// `pyde_getHardFinalityCert` — wave finality certificate.
+    ///
+    /// The bundle of ≥ `QUORUM` (85) validator signatures proving
+    /// wave `wave_id` is hard-finalised. Used by light clients,
+    /// cross-chain bridges, and zk-rollup verifiers that don't
+    /// want to trust the RPC node's "this is final" claim.
+    ///
+    /// Returns `None` if the wave isn't finalised yet (or never
+    /// existed). Result shape is raw-serde
+    /// `HardFinalityCert { commit: WaveCommitRecord, signatures:
+    /// Vec<(u32, Vec<u8>)> }`; returned as opaque [`Value`] today,
+    /// callers `serde_json::from_value` into their own typed
+    /// struct.
+    ///
+    /// `wave_id` is sent as a bare JSON number on the wire (not
+    /// hex string) — engine quirk shared with `pyde_getWave`.
+    async fn get_hard_finality_cert(&self, wave_id: u64) -> Result<Option<Value>, SdkError>;
+
+    /// `pyde_getThresholdPublicKey` — threshold-decryption pubkey
+    /// for the encrypted-mempool path.
+    ///
+    /// Wallets encrypt a plaintext `Tx` under `result.public_key`
+    /// before submitting via
+    /// [`Self::send_raw_encrypted_transaction`]. Per-epoch — refresh
+    /// per encrypted submit (cheap, no consensus round-trip).
+    ///
+    /// Returns `None` if no DKG ceremony has run yet. v1 boot
+    /// writes a deterministic mock pubkey (`scheme: "mock"`) so
+    /// the encrypted-mempool path is reachable from the first
+    /// wave; real Kyber-768 crypto overwrites it at the per-epoch
+    /// combine. Treat `scheme != "kyber-768"` as "encrypted path
+    /// not yet ready, fall back to plaintext."
+    async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError>;
 
     // ── Events ──────────────────────────────────────────────────
 
@@ -341,20 +423,20 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
             .transport
             .send("pyde_sendRawTransaction", json!([payload]))
             .await?;
-        let s = v.as_str().ok_or_else(|| {
-            SdkError::InvalidResponse(format!("send_raw_transaction: expected string, got {v}"))
-        })?;
-        let bytes = hex::decode(s.trim_start_matches("0x"))
-            .map_err(|e| SdkError::InvalidResponse(format!("tx_hash hex: {e}")))?;
-        if bytes.len() != 32 {
-            return Err(SdkError::InvalidResponse(format!(
-                "tx_hash: expected 32 bytes, got {}",
-                bytes.len()
-            )));
-        }
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
-        Ok(TxHash::new(arr))
+        decode_tx_hash_from_value(&v, "send_raw_transaction")
+    }
+
+    async fn send_raw_encrypted_transaction(&self, envelope_hex: &str) -> Result<TxHash, SdkError> {
+        let payload = if envelope_hex.starts_with("0x") {
+            envelope_hex.to_string()
+        } else {
+            format!("0x{envelope_hex}")
+        };
+        let v = self
+            .transport
+            .send("pyde_sendRawEncryptedTransaction", json!([payload]))
+            .await?;
+        decode_tx_hash_from_value(&v, "send_raw_encrypted_transaction")
     }
 
     async fn call(&self, req: &CallRequest) -> Result<Vec<u8>, SdkError> {
@@ -387,7 +469,7 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
             .map_err(|e| SdkError::InvalidResponse(format!("get_transaction_receipt: {e}")))
     }
 
-    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError> {
+    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError> {
         let hash_hex = format!("0x{}", hex::encode(hash.as_bytes()));
         let v = self
             .transport
@@ -421,6 +503,31 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
             return Ok(None);
         }
         Ok(Some(v))
+    }
+
+    async fn get_hard_finality_cert(&self, wave_id: u64) -> Result<Option<Value>, SdkError> {
+        // Bare u64 number param — engine quirk shared with pyde_getWave.
+        let v = self
+            .transport
+            .send("pyde_getHardFinalityCert", json!([wave_id]))
+            .await?;
+        if v.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(v))
+    }
+
+    async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError> {
+        let v = self
+            .transport
+            .send("pyde_getThresholdPublicKey", json!([]))
+            .await?;
+        if v.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(v)
+            .map(Some)
+            .map_err(|e| SdkError::InvalidResponse(format!("get_threshold_public_key: {e}")))
     }
 
     async fn get_events(&self, filter: &EventFilter) -> Result<Vec<Event>, SdkError> {
@@ -497,4 +604,23 @@ fn decode_hex_bytes(v: &Value, ctx: &str) -> Result<Vec<u8>, SdkError> {
     let stripped = s.trim_start_matches("0x");
     hex::decode(stripped)
         .map_err(|e| SdkError::InvalidResponse(format!("{ctx}: bad hex bytes: {e}")))
+}
+
+/// Decode an RPC response that's a 32-byte hex string into a [`TxHash`].
+/// Used by both `send_raw_transaction` and `send_raw_encrypted_transaction`.
+fn decode_tx_hash_from_value(v: &Value, ctx: &str) -> Result<TxHash, SdkError> {
+    let s = v
+        .as_str()
+        .ok_or_else(|| SdkError::InvalidResponse(format!("{ctx}: expected hex string, got {v}")))?;
+    let bytes = hex::decode(s.trim_start_matches("0x"))
+        .map_err(|e| SdkError::InvalidResponse(format!("{ctx}: tx_hash hex: {e}")))?;
+    if bytes.len() != 32 {
+        return Err(SdkError::InvalidResponse(format!(
+            "{ctx}: tx_hash expected 32 bytes, got {}",
+            bytes.len()
+        )));
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(TxHash::new(arr))
 }

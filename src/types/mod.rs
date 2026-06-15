@@ -53,8 +53,9 @@ pub use falcon::{
 pub use hash::{Blake3Hash, Poseidon2Hash, TxHash, HASH_LEN};
 pub use rpc::{
     AccountInfo, BlockHeader, CallOverrides, CallRequest, Event, EventFilter, FeeData, Log,
-    LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, SimulationAccessList,
-    SimulationRead, SimulationReadVersion, SimulationReceipt, SimulationResult, WaveHeader,
+    LogCursor, LogFilter, LogPage, NodeInfo, RawReceipt, RawReceiptStatus, Receipt, ReceiptStatus,
+    SimulationAccessList, SimulationRead, SimulationReadVersion, SimulationReceipt,
+    SimulationResult, ThresholdPublicKey, WaveHeader,
 };
 pub use state_schema::{FieldKind, ScalarType, StateField, StateSchema};
 pub use tx_types::{

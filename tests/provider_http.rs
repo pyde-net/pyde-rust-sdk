@@ -11,9 +11,7 @@
 use std::sync::Arc;
 
 use pyde_rust_sdk::provider::{HttpTransport, Provider, RootProvider};
-use pyde_rust_sdk::types::{
-    Address, EventFilter, LogFilter, ReceiptStatus, TxHash, FALCON_PUBKEY_LEN,
-};
+use pyde_rust_sdk::types::{Address, EventFilter, LogFilter, TxHash, FALCON_PUBKEY_LEN};
 use pyde_rust_sdk::Signer;
 use serde_json::{json, Value};
 use wiremock::matchers::{body_partial_json, method, path};
@@ -204,27 +202,37 @@ async fn resolve_name_handles_registered_and_unregistered() {
 // ── Receipt ─────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn get_receipt_decodes_engine_shape() {
+async fn get_receipt_decodes_raw_serde_shape() {
+    use pyde_rust_sdk::types::RawReceiptStatus;
     let (provider, server) = provider_with_server().await;
+    // Engine's pyde_getReceipt emits raw serde_json::to_value(Receipt)
+    // — numeric fields as raw integers, tx_hash + return_data as
+    // byte arrays, status as PascalCase. NOT interchangeable with
+    // pyde_getTransactionReceipt's hex-string shape.
+    let tx_hash_array: Vec<u8> = vec![0xAB; 32];
     Mock::given(method("POST"))
         .and(match_method("pyde_getReceipt"))
         .respond_with(ok_response(json!({
-            "tx_hash": format!("0x{}", "ab".repeat(32)),
-            "wave_id": "0x5",
-            "tx_index": "0x2",
-            "status": "success",
-            "gas_used": "0x5208",
-            "fee_paid": "0x12345",
-            "return_data": "0x",
+            "tx_hash": tx_hash_array,
+            "wave_id": 5,
+            "tx_index": 2,
+            "status": "Success",
+            "gas_used": 0x5208,
+            "fee_paid": 0x12345,
+            "return_data": [],
             "events": []
         })))
         .mount(&server)
         .await;
     let hash = TxHash::new([0xAB; 32]);
     let receipt = provider.get_receipt(&hash).await.unwrap().unwrap();
-    assert!(matches!(receipt.status, ReceiptStatus::Success));
-    assert_eq!(receipt.gas(), 0x5208);
-    assert_eq!(receipt.fee_paid_quanta(), 0x12345);
+    assert!(matches!(receipt.status, RawReceiptStatus::Success));
+    assert!(receipt.is_success());
+    assert_eq!(receipt.gas_used, 0x5208);
+    assert_eq!(receipt.fee_paid, 0x12345);
+    assert_eq!(receipt.wave_id, 5);
+    assert_eq!(receipt.tx_index, 2);
+    assert_eq!(receipt.tx_hash, [0xAB; 32]);
 }
 
 #[tokio::test]
@@ -582,4 +590,101 @@ async fn get_snapshot_manifest_returns_value() {
         .await;
     let v = provider.get_snapshot_manifest().await.unwrap();
     assert_eq!(v["chunk_count"], 4);
+}
+
+// ── T27: encrypted-mempool + finality + threshold-pk ─────────────
+
+#[tokio::test]
+async fn get_threshold_public_key_decodes_engine_shape() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getThresholdPublicKey"))
+        .respond_with(ok_response(json!({
+            "epoch": "0x0",
+            "scheme": "mock",
+            "public_key": "0xdeadbeef"
+        })))
+        .mount(&server)
+        .await;
+    let pk = provider.get_threshold_public_key().await.unwrap().unwrap();
+    assert_eq!(pk.epoch, "0x0");
+    assert_eq!(pk.scheme, "mock");
+    assert_eq!(pk.public_key, "0xdeadbeef");
+}
+
+#[tokio::test]
+async fn get_threshold_public_key_handles_null() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getThresholdPublicKey"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    assert!(provider.get_threshold_public_key().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn send_raw_encrypted_transaction_decodes_tx_hash() {
+    let (provider, server) = provider_with_server().await;
+    let expected = format!("0x{}", "cc".repeat(32));
+    Mock::given(method("POST"))
+        .and(match_method("pyde_sendRawEncryptedTransaction"))
+        .respond_with(ok_response(json!(expected)))
+        .mount(&server)
+        .await;
+    let h = provider
+        .send_raw_encrypted_transaction("0xaabbccddeeff")
+        .await
+        .unwrap();
+    assert_eq!(h.as_bytes(), &[0xCC; 32]);
+}
+
+#[tokio::test]
+async fn send_raw_encrypted_transaction_accepts_bare_hex() {
+    // No 0x prefix on the envelope arg — handler should add it.
+    let (provider, server) = provider_with_server().await;
+    let expected = format!("0x{}", "dd".repeat(32));
+    Mock::given(method("POST"))
+        .and(match_method("pyde_sendRawEncryptedTransaction"))
+        .respond_with(ok_response(json!(expected)))
+        .mount(&server)
+        .await;
+    let h = provider
+        .send_raw_encrypted_transaction("aabbccddeeff")
+        .await
+        .unwrap();
+    assert_eq!(h.as_bytes(), &[0xDD; 32]);
+}
+
+#[tokio::test]
+async fn get_hard_finality_cert_returns_value() {
+    let (provider, server) = provider_with_server().await;
+    let anchor_hash: Vec<u8> = vec![1; 32];
+    let sig_bytes: Vec<u8> = vec![99; 666];
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getHardFinalityCert"))
+        .respond_with(ok_response(json!({
+            "commit": { "wave_id": 5, "anchor_hash": anchor_hash },
+            "signatures": [[0, sig_bytes]]
+        })))
+        .mount(&server)
+        .await;
+    let cert = provider.get_hard_finality_cert(5).await.unwrap().unwrap();
+    assert_eq!(cert["commit"]["wave_id"], 5);
+    assert!(cert["signatures"].is_array());
+}
+
+#[tokio::test]
+async fn get_hard_finality_cert_handles_null() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getHardFinalityCert"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    assert!(provider
+        .get_hard_finality_cert(99999)
+        .await
+        .unwrap()
+        .is_none());
 }
