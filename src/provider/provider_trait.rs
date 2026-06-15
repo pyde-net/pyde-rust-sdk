@@ -82,10 +82,22 @@ pub trait Provider: Send + Sync {
 
     /// `pyde_getStorageSlot` — raw storage-slot value.
     ///
-    /// `slot` is the full 32-byte PIP-2 clustered key. Returns
-    /// `None` for an unset slot. Note: contracts in v1 supply the
-    /// full slot key at `sstore` time per HOST_FN_ABI §7.6 — the
-    /// SDK doesn't fabricate the key.
+    /// `slot` is the full 32-byte derived slot key. Returns `None`
+    /// for an unset slot.
+    ///
+    /// Pyde stores state as a flat 32-byte-key → variable-value
+    /// map; contracts derive the key themselves at `sstore` /
+    /// `sload` time per HOST_FN_ABI §7.6. Two conventions are in
+    /// active use:
+    ///
+    /// - **PIP-2 clustered** (otigen-compiled Rust contracts) —
+    ///   `address[..16] || Poseidon2(disc || slot_index_le)[..16]`.
+    /// - **Field-name Poseidon2** (hand-rolled Go / C contracts) —
+    ///   `Poseidon2(contract_address || field_name || key)`.
+    ///
+    /// Explorers re-deriving the key need to know which convention
+    /// a given contract uses. See `docs/06-providers.md` for the
+    /// full layout + how to identify each via the bundle's ABI.
     async fn get_storage_slot(&self, slot: &[u8; 32]) -> Result<Option<Vec<u8>>, SdkError>;
 
     /// `pyde_resolveName` — name registry lookup.

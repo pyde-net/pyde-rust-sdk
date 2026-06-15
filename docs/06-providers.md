@@ -281,9 +281,99 @@ println!("functions: {}", abi.functions.len());
 | Wire | `pyde_getStorageSlot` |
 | Returns | The 32-byte slot's value (variable-length bytes). `None` if the slot has never been written. |
 
-Slots are derived via `Poseidon2(contract_address ‖ field_name ‖
-key)` — contracts use the `pyde.sstore` / `pyde.sload` host fns
-to drive this; the SDK provides the read path for explorers.
+The chain stores state as a flat 32-byte-key → variable-value
+map (JMT). `pyde_getStorageSlot` takes the **fully-derived
+slot key** — the SDK doesn't fabricate it. Contracts derive
+the key at `sstore` / `sload` time inside the contract's WASM
+via the `pyde.sstore` / `pyde.sload` host fns (per
+HOST_FN_ABI §7.6); explorers that want to read state need to
+re-derive the same key with whichever convention the contract
+used.
+
+##### Two slot-derivation conventions in use
+
+Pyde contracts use **one of two** Poseidon2-based derivations,
+depending on which toolchain compiled them. Both produce a
+valid 32-byte slot key; the engine just stores values under
+opaque keys and doesn't care which scheme produced them.
+
+###### A. PIP-2 clustered keys (otigen-compiled Rust contracts)
+
+The default for contracts scaffolded with `otigen init --lang rust`
+and compiled with `otigen build`. Used by every Rust contract
+the canonical templates produce. Layout (per
+[PIP-2](https://github.com/pyde-net/pips/blob/main/pip-0002-clustered-state-keys.md)):
+
+```
+                  32 bytes total
+┌──────────────────────────────┬──────────────────────────────┐
+│ contract_address[..16]       │ Poseidon2(disc || …)[..16]   │
+│ (high 16 bytes — cluster     │ (intra-contract hash —       │
+│  prefix for RocksDB locality)│  low 16 bytes)               │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+Per-shape derivations:
+
+| Shape | `disc` | Intra-contract preimage |
+|---|---|---|
+| Primitive field (`counter: u64`) | `0x04` | `0x04 ‖ slot_index_le` (u64 LE) |
+| Map entry (`balances: map<Address, u128>` at `key`) | `0x05` | `Poseidon2(0x04 ‖ slot_index_le) ‖ 0x05 ‖ map_key_bytes` |
+| Nested map (`map<K1, map<K2, V>>` at `(k1, k2)`) | `0x05` | chains the map step twice |
+
+`slot_index` is a compile-time `u64` the otigen compiler
+emits per declared state field — explorers re-deriving the
+key need the contract's `state_schema` (from the `pyde.abi`
+custom section) to translate field-name → slot_index.
+
+Engine source: `engine/crates/state/src/slot_key.rs`
+(`storage_slot_key`, `map_entry_key`, `nested_map_entry_key`).
+
+###### B. Field-name Poseidon2 (hand-rolled Go / C contracts)
+
+The pattern used by hand-rolled contracts that don't go through
+otigen's Rust-only slot-index assignment — including this SDK's
+own `examples/contracts/access-guard/main.go`. Layout:
+
+```
+slot_key = Poseidon2(contract_address ‖ field_name_bytes ‖ key_bytes_optional)
+                     32 bytes          variable           variable (empty for primitives)
+```
+
+Example from `access-guard/main.go`:
+
+```go
+var fieldAdmin   = []byte("admin")
+var fieldCounter = []byte("counter")
+
+func deriveSlot(field []byte, key []byte) [32]byte {
+    var preimage [32 + 96]byte
+    total := 32 + len(field) + len(key)
+    self_address(int32(uintptr(unsafe.Pointer(&preimage[0]))))
+    copy(preimage[32:32+len(field)],   field)
+    copy(preimage[32+len(field):total], key)
+    var out [32]byte
+    hash_poseidon2(...)
+    return out
+}
+```
+
+No cluster prefix, no slot-index lookup needed. Explorers
+re-deriving the key only need the contract's field-name string
++ optional map-key bytes.
+
+##### Which convention is in use for a contract?
+
+The contract's bundle manifest declares it. For
+otigen-Rust-compiled bundles, the `state_schema` in
+`pyde.abi` carries the slot-index assignments — PIP-2 clustered.
+For hand-rolled Go/C contracts with no
+`state_schema`-driven layout, fall back to the field-name
+convention.
+
+When in doubt: fetch the contract's WASM via `get_contract_code(addr)`,
+extract the ABI via `extract_abi(wasm)` ([Contracts §7.10](07-contracts.md#710-extract_abi--parse-a-deployed-wasm)),
+and inspect `state_schema` — present means PIP-2 clustered.
 
 #### `resolve_name(name)`
 
