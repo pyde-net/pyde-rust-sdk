@@ -45,8 +45,11 @@ suite fails before the drift hits production.
 | `MultisigTxPayload` | `pyde_engine_tx::handlers::multisig_tx::MultisigTxPayload` | `target` ‖ `amount` ‖ `bundle`. |
 | `BundleEntry` | `pyde_engine_tx::multisig::BundleEntry` | `signer_index` ‖ `signature`. |
 | Multisig domain bytes | `pyde_engine_tx::multisig::domain_byte` | `0x09`, `0x0A`, `0x0B`, `0x0C`, `0x10`. |
-| `Receipt` | `pyde_engine_types::Receipt` | Field order matches engine. |
+| `Receipt` | `pyde_engine_types::Receipt` (formatted via `receipt_to_json()`) | Hex-string convention — `pyde_getTransactionReceipt` shape. Numeric fields as `"0x…"`, status as snake_case. |
+| `RawReceipt` | `pyde_engine_types::Receipt` (raw `serde_json::to_value`) | `pyde_getReceipt`'s archival-endpoint shape. `tx_hash` as `[u8; 32]` JSON array, numeric fields raw, status PascalCase. Two shapes are deliberate per RPC catalog gotcha #1 — see [§12.9](#129-migration-get_receipt-return-type-unreleased) for which to use when. |
 | `Event` | `pyde_engine_types::Event` | Hex-string fields throughout (JSON-RPC convention). |
+| `ThresholdPublicKey` | `pyde_engine_types::ThresholdPublicKey` | `pyde_getThresholdPublicKey` result. Fields: `epoch` (hex string), `scheme` (`"mock"` or `"kyber-768"`), `public_key` (hex string). Per-epoch — caller refreshes per encrypted submit. |
+| `EncryptedTxEnvelope` (input to `pyde_sendRawEncryptedTransaction`) | `pyde_engine_types::EncryptedTxEnvelope` | Borsh: 1-byte version + `Vec<u8>` ciphertext. SDK ships hex-encoded; v1 size limits 1213-byte min, 128-KiB max (engine-enforced at admit). |
 
 ### Tx canonical hash
 
