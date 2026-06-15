@@ -196,7 +196,7 @@ let provider = Arc::new(RootProvider::new(transport));
 `HttpTransport::new` builds a reqwest client with `rustls` TLS
 (no system OpenSSL required) and validates the URL up-front.
 `RootProvider::new(transport)` wraps the transport to expose the
-23-method `Provider` trait. We wrap in `Arc` so the provider can
+26-method `Provider` trait. We wrap in `Arc` so the provider can
 be shared across tasks cheaply.
 
 → See [Providers §6.1](06-providers.md#61-transports).

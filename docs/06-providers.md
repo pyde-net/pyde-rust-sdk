@@ -13,7 +13,7 @@ that needs to talk to the chain.
 
 - [6.1 Transports](#61-transports)
 - [6.2 Building a provider](#62-building-a-provider)
-- [6.3 The `Provider` trait — all 23 methods](#63-the-provider-trait--all-23-methods)
+- [6.3 The `Provider` trait — all 26 methods](#63-the-provider-trait--all-26-methods)
 - [6.4 Calling read-only contract methods](#64-calling-read-only-contract-methods)
 - [6.5 Simulating](#65-simulating)
 - [6.6 Retry policy](#66-retry-policy)
@@ -133,7 +133,7 @@ let provider: Arc<HttpProvider> = Arc::new(
 
 ---
 
-## 6.3 The `Provider` trait — all 23 methods
+## 6.3 The `Provider` trait — all 26 methods
 
 Naming convention: `pyde_<camelCase>` on the wire → `snake_case`
 on the trait.
@@ -397,7 +397,7 @@ if let Some(addr) = provider.resolve_name("counter").await? {
 
 ---
 
-### Transactions — 6 methods
+### Transactions — 7 methods
 
 #### `send_raw_transaction(&tx)`
 
@@ -407,6 +407,59 @@ if let Some(addr) = provider.resolve_name("counter").await? {
 | Wire | `pyde_sendRawTransaction` |
 | Returns | The canonical `tx_hash`. The tx is now in the mempool; poll for the receipt separately. |
 | Errors | `SdkError::Rpc` for chain-level rejections (bad sig, nonce out of window, insufficient balance, etc.). |
+
+#### `send_raw_encrypted_transaction(envelope_hex)`
+
+| | |
+|---|---|
+| Signature | `async fn send_raw_encrypted_transaction(&self, envelope_hex: &str) -> Result<TxHash, SdkError>` |
+| Wire | `pyde_sendRawEncryptedTransaction` |
+| Returns | The 32-byte Blake3 envelope hash (NOT the inner plaintext `tx_hash`). |
+
+MEV-protection sister of `send_raw_transaction`. Wallets encrypt
+a plaintext `Tx` under the chain's current threshold pubkey
+(from `get_threshold_public_key()`), borsh-encode the result as
+an `EncryptedTxEnvelope`, and submit the bytes hex-encoded
+here.
+
+The returned hash is `Blake3(version || ciphertext_len_le ||
+ciphertext)` — used for envelope-level identification only. The
+inner plaintext carries its own Poseidon2 `tx_hash` that's only
+knowable post-decryption, and receipts go under THAT hash; poll
+`get_receipt(plaintext_hash)` or `get_transaction_receipt(plaintext_hash)`
+after the wave commits.
+
+**v1 mock-DKG warning:** check `get_threshold_public_key().scheme`
+first. If it reports `"mock"` (the v1 default until real
+Kyber-768 crypto lands), encrypted submissions will **sit
+unprocessed**. Treat `scheme != "kyber-768"` as "encrypted path
+not yet ready, fall back to plaintext."
+
+Engine v1 size limits: min 1213 bytes, max 128 KiB. Bigger /
+smaller envelopes get rejected with `SdkError::Rpc` carrying
+the engine's `EncryptedAdmissionError` variant.
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
+let pk = provider.get_threshold_public_key().await?;
+let Some(pk) = pk else {
+    println!("DKG not ready, fall back to plaintext send");
+    return Ok(());
+};
+if pk.scheme != "kyber-768" {
+    println!("v1 mock — submissions will sit; using plaintext");
+    return Ok(());
+}
+// Encrypt a Tx under pk.public_key into a borsh-encoded
+// EncryptedTxEnvelope (implementation lives in pyde-crypto):
+let envelope_hex = encrypt_tx_envelope(/* &tx, &pk */);
+let envelope_hash = provider.send_raw_encrypted_transaction(&envelope_hex).await?;
+println!("encrypted envelope submitted: {envelope_hash}");
+# Ok(()) }
+# fn encrypt_tx_envelope() -> String { String::new() }
+```
 
 #### `call(&CallRequest)`
 
@@ -441,23 +494,42 @@ See [§6.5](#65-simulating).
 
 | | |
 |---|---|
-| Signature | `async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>` |
+| Signature | `async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError>` |
 | Wire | `pyde_getReceipt` |
-| Returns | Same as `get_transaction_receipt` — short-name alias. |
+| Returns | A `RawReceipt` (different shape from `get_transaction_receipt` — raw-serde, see below). `None` if the receipt isn't in the consensus archive. |
 
-`PendingTx::wait_for_receipt` uses this internally.
+**Different wire shape from `get_transaction_receipt`.** The
+two methods read from different storage tiers and the engine
+emits them in two distinct formats:
+
+| Field | `Receipt` (from `get_transaction_receipt`) | `RawReceipt` (from `get_receipt`) |
+|---|---|---|
+| `tx_hash` | hex string | 32-byte int array |
+| `wave_id` / `tx_index` / `gas_used` / `fee_paid` | hex string | raw integers |
+| `status` | snake_case enum | PascalCase enum |
+| `return_data` | hex string | `Vec<u8>` byte array |
+
+Use `get_transaction_receipt` for dapp / wallet flows; use
+`get_receipt` for archival queries past the hot-state TTL.
+`PendingTx::wait_for_receipt` uses `get_transaction_receipt`
+internally.
 
 #### `get_tx(hash)`
 
 | | |
 |---|---|
 | Signature | `async fn get_tx(&self, hash: &TxHash) -> Result<Option<Tx>, SdkError>` |
-| Wire | `pyde_getTransaction` |
+| Wire | `pyde_getTx` |
 | Returns | The original `Tx` if the chain still has it; nodes may prune old txs. |
+
+Engine emits raw-serde `Tx`; the SDK's derived `Deserialize`
+on `Tx` (over `Address`, `FalconSignature`, `FeePayer` newtypes
+with derived serde) accepts the raw shape directly. No separate
+type needed.
 
 ---
 
-### Waves + events — 3 methods
+### Waves + events — 4 methods
 
 #### `get_wave(wave_id)`
 
@@ -466,6 +538,51 @@ See [§6.5](#65-simulating).
 | Signature | `async fn get_wave(&self, wave_id: u64) -> Result<Option<Value>, SdkError>` |
 | Wire | `pyde_getWave` |
 | Returns | Raw wave shape (`serde_json::Value`). Wallets / explorers parse it. |
+
+`wave_id` is sent on the wire as a **bare JSON number**, not a
+hex string — engine quirk shared with `get_hard_finality_cert`.
+
+#### `get_hard_finality_cert(wave_id)`
+
+| | |
+|---|---|
+| Signature | `async fn get_hard_finality_cert(&self, wave_id: u64) -> Result<Option<Value>, SdkError>` |
+| Wire | `pyde_getHardFinalityCert` |
+| Returns | The cert (raw `Value`) if the wave is finalised, `None` if not finalised / never existed. |
+
+The bundle of ≥85 (`QUORUM`) validator signatures proving wave
+`wave_id` is **hard-finalised**. Used by light clients, cross-
+chain bridges, and zk-rollup verifiers that don't want to
+trust the RPC node's "this is final" claim.
+
+Returned as raw `serde_json::Value` for now. Shape:
+
+```jsonc
+{
+  "commit": <WaveCommitRecord>,
+  "signatures": [
+    [<signer_id_u32>, [<FALCON sig bytes>]],
+    ...
+  ]
+}
+```
+
+Like `get_wave`, the `wave_id` param goes on the wire as a
+bare JSON number.
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>, wave_id: u64) -> pyde_rust_sdk::Result<()> {
+match provider.get_hard_finality_cert(wave_id).await? {
+    Some(cert) => {
+        let sig_count = cert["signatures"].as_array().map_or(0, |a| a.len());
+        println!("wave {wave_id} finalised with {sig_count} sigs");
+    }
+    None => println!("wave {wave_id} not yet finalised"),
+}
+# Ok(()) }
+```
 
 #### `get_events(&filter)`
 
@@ -524,6 +641,59 @@ sync use `get_snapshot_manifest` + fetch chunks on demand.
 | Signature | `async fn get_snapshot_manifest(&self) -> Result<Value, SdkError>` |
 | Wire | `pyde_getSnapshotManifest` |
 | Returns | `{wave_id, state_root, chunk_size, chunk_count, chunk_hashes}`. Lightweight. |
+
+---
+
+### Encrypted mempool — 1 method
+
+#### `get_threshold_public_key()`
+
+| | |
+|---|---|
+| Signature | `async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError>` |
+| Wire | `pyde_getThresholdPublicKey` |
+| Returns | The current DKG-epoch pubkey wallets encrypt under, or `None` if no DKG ceremony has run yet. |
+
+Wallets need this before submitting via
+[`send_raw_encrypted_transaction`](#send_raw_encrypted_transactionenvelope_hex)
+for MEV protection. Per-epoch — refresh per encrypted submit
+(cheap, no consensus round-trip).
+
+`ThresholdPublicKey` shape:
+
+```rust,ignore
+pub struct ThresholdPublicKey {
+    pub epoch: String,        // DKG epoch, hex string
+    pub scheme: String,       // "mock" (v1 default) or "kyber-768"
+    pub public_key: String,   // pubkey bytes, hex string
+}
+```
+
+**v1 mock-DKG**: v1 boot writes a deterministic mock pubkey
+(`scheme: "mock"`, `epoch: "0x0"`) so the encrypted-mempool
+path is reachable from the first wave. Real Kyber-768 crypto
+overwrites it at the per-epoch combine. Until then,
+encrypted submissions **will sit unprocessed**. Always check
+`scheme` before encrypting:
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::Provider;
+# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
+match provider.get_threshold_public_key().await? {
+    Some(pk) if pk.scheme == "kyber-768" => {
+        // Real crypto — safe to encrypt + submit.
+    }
+    Some(pk) => {
+        eprintln!("encrypted path not ready yet (scheme: {})", pk.scheme);
+        // Fall back to plaintext send.
+    }
+    None => {
+        eprintln!("DKG hasn't run yet — fall back to plaintext");
+    }
+}
+# Ok(()) }
+```
 
 ---
 

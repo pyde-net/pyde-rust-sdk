@@ -9,6 +9,32 @@ pre-1.0 may have breaking changes at any minor bump (see
 ## [Unreleased]
 
 ### Added
+- **Three new `Provider` methods** matching engine PR-326's RPC
+  catalog additions:
+  - `send_raw_encrypted_transaction(envelope_hex)` →
+    `pyde_sendRawEncryptedTransaction`. Submits a borsh-encoded
+    `EncryptedTxEnvelope` for the MEV-protected mempool path.
+    Returns the 32-byte Blake3 envelope hash. Engine v1 size
+    limits enforced: min 1213 bytes, max 128 KiB.
+  - `get_threshold_public_key()` →
+    `pyde_getThresholdPublicKey`. Returns the current DKG-epoch
+    pubkey wallets encrypt under (`{epoch, scheme, public_key}`).
+    v1 mock-DKG warning: callers must check `scheme == "kyber-768"`
+    before treating the encrypted path as live; v1 default ships
+    a deterministic mock pubkey under `scheme: "mock"`.
+  - `get_hard_finality_cert(wave_id)` →
+    `pyde_getHardFinalityCert`. Returns the wave's hard-finality
+    cert (bundle of ≥85 validator signatures) for light-client +
+    cross-chain-bridge use. `wave_id` is sent as a bare JSON
+    number on the wire (engine quirk shared with `get_wave`).
+- New type `RawReceipt` mirroring `pyde_getReceipt`'s raw-serde
+  wire shape — byte-array `tx_hash`, raw-integer wave_id /
+  tx_index / gas_used / fee_paid, PascalCase `RawReceiptStatus`,
+  `Vec<u8>` `return_data`. NOT interchangeable with `Receipt`
+  (which mirrors `pyde_getTransactionReceipt`'s hex-string
+  shape). The engine maintains both shapes as stable contracts;
+  the SDK now carries one deserialiser per method.
+- New type `ThresholdPublicKey` `{epoch, scheme, public_key}`.
 - `RetryConfig` for `HttpTransport` — exponential backoff with jitter
   on transient failures (connection refused, TCP/TLS errors, HTTP 5xx).
   Default: 3 retries, 100 ms base, 5 s cap, ±25% jitter. Disable via
@@ -25,6 +51,16 @@ pre-1.0 may have breaking changes at any minor bump (see
   + errors + example code + expected output for every public function.
 
 ### Changed
+- **Breaking**: `Provider::get_receipt` return type changed from
+  `Option<Receipt>` to `Option<RawReceipt>`. The trait doc was
+  previously wrong about the wire shape — the engine emits this
+  endpoint via raw `serde_json::to_value(Receipt)` (byte arrays
+  + raw integers + PascalCase status), distinct from
+  `pyde_getTransactionReceipt`'s hex-string format. Callers
+  hitting only the hot-state receipt path should switch to
+  `get_transaction_receipt` (unchanged signature, returns
+  `Option<Receipt>`); only archival queries past the hot-state
+  TTL need `get_receipt` + `RawReceipt`.
 - All docs + examples now point at `otigen devnet` (port `9933`) for
   the local chain runtime. The previous `pyde devnet` (port `8545`)
   references assumed users had cloned `pyde-net/engine`; the new path
