@@ -51,6 +51,15 @@ pre-1.0 may have breaking changes at any minor bump (see
   `Wallet` → `LocalSigner` → `FalconSecret` Drop chain stays intact.
   The chain wipes the 1281-byte FALCON secret-key buffer when a
   `Wallet` goes out of scope.
+- Multi-contract orchestration regression test
+  (`tests/contract_orchestration_mock.rs`, 3 cases). Pins the
+  send → wait_for_receipt → call cycle across two distinct contract
+  instances under the same signer; also pins `PendingTx`'s
+  receipt-vs-polled-hash cross-check and a sequential
+  send→read→send→read flow on a single contract. Wiremock dispatches
+  per-contract via `body_string_contains` on the address hex.
+  Caught contract-side code-path regressions wouldn't otherwise
+  surface until the next live test sweep.
 - `rust-toolchain.toml` pinning the floating-stable channel + MSRV
   declaration (`rust-version = "1.75"`) in `Cargo.toml`.
 - `docs/13-utilities.md` + `docs/14-constants.md` — reference chapters
