@@ -90,7 +90,7 @@ async fn non_view_call_returns_pending_tx() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok_response(json!("0x0")))
         .mount(&server)
         .await;
@@ -121,7 +121,7 @@ async fn non_view_with_no_args_works() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok_response(json!("0x3")))
         .mount(&server)
         .await;
