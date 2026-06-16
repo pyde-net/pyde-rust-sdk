@@ -19,6 +19,7 @@ own dapp.
   - [`multisig_treasury.rs`](#multisig_treasuryrs)
 - [11.3 Live examples (require a running devnet)](#113-live-examples-require-a-running-devnet)
   - [`transfer.rs`](#transferrs)
+  - [`encrypted_transfer.rs`](#encrypted_transferrs)
   - [`devnet_e2e.rs`](#devnet_e2ers)
   - [`subscribe_logs.rs`](#subscribe_logsrs)
   - [`contract_dynamic.rs`](#contract_dynamicrs)
@@ -209,6 +210,52 @@ error: insufficient balance
 - `TxBuilder::transfer`
 - `Signer::sign_tx`
 - `PendingTx::wait_for_receipt`
+
+---
+
+### `encrypted_transfer.rs`
+
+**Run:**
+```sh
+PYDE_RPC_URL=http://127.0.0.1:9933 cargo run --example encrypted_transfer
+```
+
+**What it does:**
+
+Round-trips a transfer through Pyde's MEV-protected mempool:
+fetch the epoch's threshold pubkey, build + sign a plaintext Tx,
+threshold-encrypt under the pubkey via
+`pyde_crypto::threshold::threshold_encrypt` + `.to_wire_bytes()`,
+wrap in [`EncryptedTxEnvelope`](../src/types/tx_types.rs),
+submit, and poll for the *plaintext* receipt under the inner
+tx hash (the wave-commit decryption ceremony publishes the
+receipt after the inner Tx executes).
+
+**Expected output:**
+```
+threshold pubkey: epoch=0x0 scheme=kyber-768-goldilocks
+signed tx: 928 bytes, plaintext_hash=0x7644b2d6...
+ciphertext: 2056 bytes (min=1213, max=131072)
+submitted envelope. hash returned: 0xb353a662...
+  local hash for verification:   0xb353a662...
+  ✓ envelope hashes match
+waiting for plaintext receipt under 0x7644b2d6...
+✓ committed: status=Success wave=12 gas_used=100000
+```
+
+**Surfaces shown:**
+- `Provider::get_threshold_public_key`
+- `pyde_crypto::threshold::ThresholdPublicKey::from_bytes`
+- `pyde_crypto::threshold::threshold_encrypt` + `to_wire_bytes()`
+- `EncryptedTxEnvelope` + `envelope_hash()`
+- `Provider::send_raw_encrypted_transaction`
+- Plaintext-receipt polling under the inner tx hash
+
+**Note:** Requires the engine's real-crypto path
+(`scheme == "kyber-768-goldilocks"`). If
+`pyde_getThresholdPublicKey` returns `scheme: "mock"`, the
+example warns and the receipt will not land until real-crypto
+ships.
 
 ---
 

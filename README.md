@@ -106,6 +106,7 @@ Step-by-step explanation: [docs/02-quickstart.md](docs/02-quickstart.md).
 | [`examples/wallet_basics.rs`](examples/wallet_basics.rs) | Generate a wallet, sign a hash, verify |
 | [`examples/keystore.rs`](examples/keystore.rs) | Encrypted at-rest persistence + load |
 | [`examples/transfer.rs`](examples/transfer.rs) | Sign + submit a PYDE transfer |
+| [`examples/encrypted_transfer.rs`](examples/encrypted_transfer.rs) | MEV-protected transfer via the encrypted mempool (round-trips a real Kyber-768 ciphertext) |
 | [`examples/contract_dynamic.rs`](examples/contract_dynamic.rs) | Load a contract by name, dynamic call |
 | [`examples/contract_typed.rs`](examples/contract_typed.rs) | Macro-generated typed wrapper |
 | [`examples/subscribe_logs.rs`](examples/subscribe_logs.rs) | Open WS, stream event logs |

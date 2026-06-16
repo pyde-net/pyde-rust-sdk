@@ -341,6 +341,56 @@ pub struct DeployData {
     pub init_calldata: Vec<u8>,
 }
 
+/// Submitted via [`crate::Provider::send_raw_encrypted_transaction`]
+/// for the MEV-protected mempool path.
+///
+/// Mirrors `pyde_engine_types::EncryptedTxEnvelope` byte-for-byte
+/// — Borsh: 1-byte version + length-prefixed `Vec<u8>` ciphertext.
+/// Build the ciphertext via `pyde_crypto::threshold::threshold_encrypt(tpk, &borsh_tx)`
+/// followed by `.to_wire_bytes()` (not `.to_bytes()` — the engine's
+/// admit-side decoder expects the wire form).
+///
+/// The envelope hash is the dedup key the mempool uses and the
+/// `tx_hash` field DecryptionShares attest under — wire-stable per
+/// the spec.
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+pub struct EncryptedTxEnvelope {
+    /// Wire-format version. v1 ships as `1`; validators MUST reject
+    /// unknown versions at mempool admit.
+    pub version: u8,
+    /// Threshold-Kyber ciphertext bytes (output of
+    /// `threshold_encrypt(...).to_wire_bytes()`).
+    pub ciphertext: Vec<u8>,
+}
+
+impl EncryptedTxEnvelope {
+    /// v1 wire-format version constant.
+    pub const VERSION: u8 = 1;
+
+    /// Minimum acceptable ciphertext size: Kyber-768 KEM ciphertext
+    /// (1184) + nonce (12) + tag (16) + 1-byte inner-Tx floor.
+    /// Smaller payloads are rejected at admit.
+    pub const MIN_CIPHERTEXT_LEN: usize = 1184 + 12 + 16 + 1;
+
+    /// Maximum acceptable ciphertext size — same as
+    /// [`MAX_TX_SIZE`] so the encrypted path's DoS surface mirrors
+    /// the plaintext path's.
+    pub const MAX_CIPHERTEXT_LEN: usize = MAX_TX_SIZE;
+
+    /// Compute the canonical envelope hash:
+    /// `Blake3(version || ciphertext_len_le || ciphertext)`.
+    /// Matches the engine's `EncryptedTxEnvelope::envelope_hash`.
+    #[must_use]
+    pub fn envelope_hash(&self) -> crate::types::TxHash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&[self.version]);
+        let len = u32::try_from(self.ciphertext.len()).unwrap_or(u32::MAX);
+        hasher.update(&len.to_le_bytes());
+        hasher.update(&self.ciphertext);
+        crate::types::TxHash::new(*hasher.finalize().as_bytes())
+    }
+}
+
 // Internal test-only accessor; placed before the `#[cfg(test)] mod
 // tests` block to satisfy clippy's items-after-test-module rule.
 impl FeePayer {

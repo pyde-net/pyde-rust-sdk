@@ -202,37 +202,34 @@ async fn resolve_name_handles_registered_and_unregistered() {
 // ── Receipt ─────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn get_receipt_decodes_raw_serde_shape() {
-    use pyde_rust_sdk::types::RawReceiptStatus;
+async fn get_receipt_decodes_hex_string_shape() {
+    use pyde_rust_sdk::types::ReceiptStatus;
     let (provider, server) = provider_with_server().await;
-    // Engine's pyde_getReceipt emits raw serde_json::to_value(Receipt)
-    // — numeric fields as raw integers, tx_hash + return_data as
-    // byte arrays, status as PascalCase. NOT interchangeable with
-    // pyde_getTransactionReceipt's hex-string shape.
-    let tx_hash_array: Vec<u8> = vec![0xAB; 32];
+    // Engine #335 aligned `pyde_getReceipt`'s wire shape to match
+    // `pyde_getTransactionReceipt` — hex strings throughout. The
+    // two endpoints now share the `Receipt` deserialiser.
     Mock::given(method("POST"))
         .and(match_method("pyde_getReceipt"))
         .respond_with(ok_response(json!({
-            "tx_hash": tx_hash_array,
-            "wave_id": 5,
-            "tx_index": 2,
-            "status": "Success",
-            "gas_used": 0x5208,
-            "fee_paid": 0x12345,
-            "return_data": [],
+            "tx_hash": "0xabababababababababababababababababababababababababababababababab",
+            "wave_id": "0x5",
+            "tx_index": "0x2",
+            "status": "success",
+            "gas_used": "0x5208",
+            "fee_paid": "0x12345",
+            "return_data": "0x",
             "events": []
         })))
         .mount(&server)
         .await;
     let hash = TxHash::new([0xAB; 32]);
     let receipt = provider.get_receipt(&hash).await.unwrap().unwrap();
-    assert!(matches!(receipt.status, RawReceiptStatus::Success));
+    assert!(matches!(receipt.status, ReceiptStatus::Success));
     assert!(receipt.is_success());
-    assert_eq!(receipt.gas_used, 0x5208);
-    assert_eq!(receipt.fee_paid, 0x12345);
-    assert_eq!(receipt.wave_id, 5);
-    assert_eq!(receipt.tx_index, 2);
-    assert_eq!(receipt.tx_hash, [0xAB; 32]);
+    assert_eq!(receipt.gas(), 0x5208);
+    assert_eq!(receipt.fee_paid_quanta(), 0x12345);
+    assert_eq!(receipt.wave_id_u64(), 5);
+    assert_eq!(receipt.tx_index_u32(), 2);
 }
 
 #[tokio::test]
