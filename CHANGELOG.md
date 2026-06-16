@@ -36,9 +36,17 @@ pre-1.0 may have breaking changes at any minor bump (see
   the SDK now carries one deserialiser per method.
 - New type `ThresholdPublicKey` `{epoch, scheme, public_key}`.
 - `RetryConfig` for `HttpTransport` — exponential backoff with jitter
-  on transient failures (connection refused, TCP/TLS errors, HTTP 5xx).
-  Default: 3 retries, 100 ms base, 5 s cap, ±25% jitter. Disable via
-  `HttpTransport::new(url)?.with_retry_config(RetryConfig::no_retry())`.
+  on transient failures (connection refused, TCP/TLS errors, HTTP 5xx,
+  HTTP 429). Default: 3 retries, 100 ms base, 5 s cap, ±25% jitter.
+  Disable via `HttpTransport::new(url)?.with_retry_config(RetryConfig::no_retry())`.
+- HTTP 429 (rate-limited) is now classified as transient + retried.
+  The engine's rate limiter ships its retry-after hint in the
+  response body (`"Wait for Ns"`); `HttpTransport` parses it and
+  uses it as the next sleep duration (capped at 60 s to bound
+  worst-case latency from a hostile server) instead of the default
+  exponential backoff. Before T30, 429 surfaced to the caller
+  immediately and broke any test/dapp doing a burst of RPC calls
+  against the default 100-rps engine limiter.
 - Memory-safety pin test (`wallet_drop_wipes_secret`) verifying the
   `Wallet` → `LocalSigner` → `FalconSecret` Drop chain stays intact.
   The chain wipes the 1281-byte FALCON secret-key buffer when a

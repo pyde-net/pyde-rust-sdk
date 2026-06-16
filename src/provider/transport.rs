@@ -101,9 +101,36 @@ impl RetryConfig {
 
 /// Classify whether an error from a single HTTP attempt is worth
 /// retrying.
+///
+/// Retry on:
+/// - `Connection` errors (TCP / TLS / refused / timeout)
+/// - HTTP 5xx (server-side intermittent)
+/// - HTTP 429 (rate-limited; honor server's `Wait for Ns` hint
+///   if present — see [`parse_retry_after_secs`])
+///
+/// Don't retry on:
+/// - HTTP 4xx other than 429 (real client error — won't change)
+/// - JSON-RPC error envelopes (chain rejected — won't change)
+/// - Malformed-response errors (server bug — won't change)
 fn is_transient(err: &SdkError) -> bool {
     matches!(err, SdkError::Connection(_))
         || matches!(err, SdkError::Rpc(msg) if msg.starts_with("HTTP 5"))
+        || matches!(err, SdkError::Rpc(msg) if msg.starts_with("HTTP 429"))
+}
+
+/// Parse the engine's `"Wait for Ns"` retry-after hint from a
+/// rate-limit error message. Returns `None` if the pattern isn't
+/// present.
+///
+/// Engine emits 429 bodies shaped like
+/// `"HTTP 429 Too Many Requests: Too Many Requests! Wait for 80s"`.
+/// The retry loop uses this to override exponential backoff with
+/// the server's explicit hint when available.
+fn parse_retry_after_secs(msg: &str) -> Option<u64> {
+    let after = msg.find("Wait for ")?;
+    let rest = &msg[after + "Wait for ".len()..];
+    let end = rest.find('s')?;
+    rest[..end].parse::<u64>().ok()
 }
 
 // ── HttpTransport ────────────────────────────────────────────────────
@@ -215,17 +242,27 @@ impl HttpTransport {
     }
 }
 
+/// Cap on how long the 429 "Wait for Ns" hint can override the
+/// configured `max_delay`. Stops a hostile server from forcing
+/// arbitrarily-long sleeps; 60 s is generous enough for any
+/// legitimate rate-limit window.
+const MAX_RETRY_AFTER_SECS: u64 = 60;
+
 #[async_trait]
 impl Transport for HttpTransport {
     async fn send(&self, method: &str, params: Value) -> Result<Value, SdkError> {
         let mut last_err: Option<SdkError> = None;
+        let mut server_hint_delay: Option<Duration> = None;
         for attempt in 0..=self.retry.max_retries {
             // The first iteration (attempt = 0) is the original
             // request; subsequent iterations are retries — each
-            // preceded by an exponentially backed-off + jittered
+            // preceded by either the server's `Retry-After` hint
+            // (if 429) or our exponentially backed-off + jittered
             // sleep.
             if attempt > 0 {
-                let delay = self.retry.delay_for(attempt - 1);
+                let delay = server_hint_delay
+                    .take()
+                    .unwrap_or_else(|| self.retry.delay_for(attempt - 1));
                 tokio::time::sleep(delay).await;
             }
             // Need to clone params per attempt because send_once
@@ -234,6 +271,17 @@ impl Transport for HttpTransport {
             match self.send_once(method, params.clone()).await {
                 Ok(v) => return Ok(v),
                 Err(e) if is_transient(&e) => {
+                    // On 429: extract the server's `Wait for Ns`
+                    // hint and use it as the NEXT sleep duration
+                    // (capped at MAX_RETRY_AFTER_SECS to bound
+                    // worst case). Falls back to exp backoff if
+                    // the hint isn't present / malformed.
+                    if let SdkError::Rpc(msg) = &e {
+                        if let Some(secs) = parse_retry_after_secs(msg) {
+                            let capped = secs.min(MAX_RETRY_AFTER_SECS);
+                            server_hint_delay = Some(Duration::from_secs(capped));
+                        }
+                    }
                     last_err = Some(e);
                     continue;
                 }
@@ -379,6 +427,49 @@ mod tests {
             "HTTP 400: bad request".into()
         )));
     }
+
+    #[test]
+    fn is_transient_classifies_429_as_retryable() {
+        // Engine emits this exact shape via its rate limiter; 429
+        // should bypass exp backoff and use the server hint (see
+        // parse_retry_after_secs test) but at minimum it must
+        // retry rather than surface to the caller immediately.
+        assert!(is_transient(&SdkError::Rpc(
+            "HTTP 429 Too Many Requests: Too Many Requests! Wait for 80s".into()
+        )));
+        assert!(is_transient(&SdkError::Rpc(
+            "HTTP 429: rate limited".into()
+        )));
+    }
+
+    #[test]
+    fn parse_retry_after_secs_extracts_engine_hint() {
+        assert_eq!(
+            parse_retry_after_secs("HTTP 429 Too Many Requests: Too Many Requests! Wait for 80s"),
+            Some(80)
+        );
+        assert_eq!(parse_retry_after_secs("HTTP 429: Wait for 1s"), Some(1));
+        assert_eq!(
+            parse_retry_after_secs("Wait for 9999s before retry"),
+            Some(9999)
+        );
+    }
+
+    #[test]
+    fn parse_retry_after_secs_handles_missing() {
+        assert_eq!(parse_retry_after_secs("HTTP 429: rate limited"), None);
+        assert_eq!(parse_retry_after_secs("HTTP 502: bad gateway"), None);
+        assert_eq!(parse_retry_after_secs(""), None);
+        // Malformed (number missing) — returns None, never panics
+        assert_eq!(parse_retry_after_secs("Wait for s"), None);
+        assert_eq!(parse_retry_after_secs("Wait for abcs"), None);
+    }
+
+    // Compile-time check that the retry-after cap stays in the
+    // "honest user-experience" range. If someone bumps
+    // MAX_RETRY_AFTER_SECS above 60s in a refactor, this fails
+    // to compile — forcing the change to surface in code review.
+    const _: () = assert!(super::MAX_RETRY_AFTER_SECS <= 60);
 
     #[test]
     fn is_transient_classifies_chain_errors_as_non_retryable() {
