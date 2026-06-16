@@ -501,18 +501,43 @@ pub struct CallOverrides {
     pub gas_limit: Option<u64>,
 }
 
-/// Current fee snapshot from the network.
+/// Current fee snapshot from the network — returned by
+/// [`crate::Provider::get_fee_data`].
 ///
 /// Pyde follows the EIP-1559 base-fee model but does NOT have
-/// user-set priority tips in v1 (Ch 11 §11.6). Both fields carry
-/// the same value today; the dual field is reserved for forward
+/// user-set priority tips in v1 (Ch 11 §11.6) — `suggested_tip` is
+/// always `0`. The dual field is reserved for forward
 /// compatibility when a tip dimension is introduced.
-#[derive(Debug, Clone, Copy)]
+///
+/// `recent_waves` carries the last 10 committed waves with their
+/// gas-utilisation summaries so wallets can render a gas-price
+/// slider or network-load chart in one round-trip.
+#[derive(Debug, Clone)]
 pub struct FeeData {
-    /// Effective gas price — base fee per gas unit. No tips in v1.
-    pub gas_price: u128,
     /// Base fee per gas unit at the latest committed wave.
     pub base_fee: u128,
+    /// Suggested priority tip — always `0` in v1 (no tip dimension).
+    pub suggested_tip: u128,
+    /// Wave id at which the snapshot was taken.
+    pub wave_id: u64,
+    /// Last 10 waves (most recent first) — `(wave_id, gas_used, gas_limit, utilisation)`.
+    /// `utilisation = gas_used / GAS_TARGET`; `> 1.0` pushes base fee up next wave.
+    pub recent_waves: Vec<RecentWaveSummary>,
+}
+
+/// One entry in [`FeeData::recent_waves`] — gas-utilisation
+/// summary for a single committed wave.
+#[derive(Debug, Clone, Copy)]
+pub struct RecentWaveSummary {
+    /// Wave id this summary covers.
+    pub wave_id: u64,
+    /// Total gas burned in the wave.
+    pub gas_used: u64,
+    /// Elasticity gas limit (`2 × GAS_TARGET`).
+    pub gas_limit: u64,
+    /// `gas_used / GAS_TARGET`; values near `1.0` mean the wave
+    /// hit target, `> 1.0` overshot (pushes base fee up next wave).
+    pub utilisation: f64,
 }
 
 // ── Wave header ────────────────────────────────────────────────

@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 
 use crate::error::SdkError;
 use crate::types::{
-    AccountInfo, Address, CallRequest, Event, EventFilter, LogFilter, LogPage, NodeInfo, Receipt,
-    SimulationResult, ThresholdPublicKey, Tx, TxHash,
+    AccountInfo, Address, CallRequest, Event, EventFilter, FeeData, LogFilter, LogPage, NodeInfo,
+    Receipt, RecentWaveSummary, SimulationResult, ThresholdPublicKey, Tx, TxHash,
 };
 
 use super::pending::PendingTx;
@@ -57,10 +57,14 @@ pub trait Provider: Send + Sync {
     /// `pyde_getBalance` — account balance in quanta.
     async fn get_balance(&self, addr: &Address) -> Result<u128, SdkError>;
 
-    /// `pyde_getTransactionCount` — the **next** acceptable nonce
-    /// (sliding-window base + trailing-ones offset). Matches the
-    /// Ethereum getTransactionCount semantics but uses Pyde's
-    /// 16-slot window under the hood.
+    /// `pyde_getNonce` — the **next** acceptable nonce
+    /// (sliding-window base + trailing-ones offset). Uses Pyde's
+    /// 16-slot window under the hood; semantically equivalent to
+    /// Ethereum's `getTransactionCount` but driven by the wave-
+    /// scoped nonce window. The engine accepts both
+    /// `pyde_getNonce` (canonical, Chapter 17.4) and
+    /// `pyde_getTransactionCount` (pre-pivot alias); the SDK
+    /// sends the canonical name.
     async fn get_nonce(&self, addr: &Address) -> Result<u64, SdkError>;
 
     /// `pyde_getAccount` — the full account record (type, balance,
@@ -194,6 +198,26 @@ pub trait Provider: Send + Sync {
     /// Returned as raw [`Value`]; advanced callers
     /// `serde_json::from_value` into their own typed struct.
     async fn get_wave(&self, wave_id: u64) -> Result<Option<Value>, SdkError>;
+
+    /// `pyde_getWave` (no-arg form) — the latest committed wave.
+    ///
+    /// Pairs with the engine's light-client head query: returns
+    /// the highest-numbered committed wave in one round-trip
+    /// instead of `wave_id()` + `get_wave(N)`.
+    ///
+    /// Result shape matches [`Self::get_wave`]. `None` only if
+    /// the chain has never committed a wave (genesis-only / pre-
+    /// boot state).
+    async fn get_wave_head(&self) -> Result<Option<Value>, SdkError>;
+
+    /// `pyde_getFeeData` — current fee snapshot + recent-wave
+    /// utilisation summary.
+    ///
+    /// Single round-trip alternative to driving a wallet's
+    /// gas-price slider with per-wave `get_wave` calls. Returns
+    /// [`FeeData`] — `base_fee` + `suggested_tip` (always `0`
+    /// in v1) + `wave_id` + last 10 waves' utilisation.
+    async fn get_fee_data(&self) -> Result<FeeData, SdkError>;
 
     /// `pyde_getHardFinalityCert` — wave finality certificate.
     ///
@@ -362,7 +386,7 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
     async fn get_nonce(&self, addr: &Address) -> Result<u64, SdkError> {
         let v = self
             .transport
-            .send("pyde_getTransactionCount", json!([addr.to_hex()]))
+            .send("pyde_getNonce", json!([addr.to_hex()]))
             .await?;
         decode_hex_u64(&v, "nonce")
     }
@@ -497,6 +521,92 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
             return Ok(None);
         }
         Ok(Some(v))
+    }
+
+    async fn get_wave_head(&self) -> Result<Option<Value>, SdkError> {
+        let v = self.transport.send("pyde_getWave", json!([])).await?;
+        if v.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(v))
+    }
+
+    async fn get_fee_data(&self) -> Result<FeeData, SdkError> {
+        let v = self.transport.send("pyde_getFeeData", json!([])).await?;
+        let obj = v.as_object().ok_or_else(|| {
+            SdkError::InvalidResponse(format!("get_fee_data: expected object, got {v}"))
+        })?;
+        let base_fee = decode_hex_u128(
+            obj.get("base_fee").ok_or_else(|| {
+                SdkError::InvalidResponse("get_fee_data: missing base_fee".into())
+            })?,
+            "base_fee",
+        )?;
+        let suggested_tip = decode_hex_u128(
+            obj.get("suggested_tip").ok_or_else(|| {
+                SdkError::InvalidResponse("get_fee_data: missing suggested_tip".into())
+            })?,
+            "suggested_tip",
+        )?;
+        let wave_id = decode_hex_u64(
+            obj.get("wave_id")
+                .ok_or_else(|| SdkError::InvalidResponse("get_fee_data: missing wave_id".into()))?,
+            "wave_id",
+        )?;
+        let recent_arr = obj
+            .get("recent_waves")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| {
+                SdkError::InvalidResponse("get_fee_data: missing recent_waves array".into())
+            })?;
+        let mut recent_waves = Vec::with_capacity(recent_arr.len());
+        for (i, entry) in recent_arr.iter().enumerate() {
+            let e = entry.as_object().ok_or_else(|| {
+                SdkError::InvalidResponse(format!("recent_waves[{i}]: not an object"))
+            })?;
+            let wave_id = decode_hex_u64(
+                e.get("wave_id").ok_or_else(|| {
+                    SdkError::InvalidResponse(format!("recent_waves[{i}].wave_id missing"))
+                })?,
+                "recent_waves.wave_id",
+            )?;
+            let gas_used = decode_hex_u64(
+                e.get("gas_used").ok_or_else(|| {
+                    SdkError::InvalidResponse(format!("recent_waves[{i}].gas_used missing"))
+                })?,
+                "recent_waves.gas_used",
+            )?;
+            let gas_limit = decode_hex_u64(
+                e.get("gas_limit").ok_or_else(|| {
+                    SdkError::InvalidResponse(format!("recent_waves[{i}].gas_limit missing"))
+                })?,
+                "recent_waves.gas_limit",
+            )?;
+            let utilisation = e
+                .get("utilisation")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    SdkError::InvalidResponse(format!(
+                        "recent_waves[{i}].utilisation missing or not a string"
+                    ))
+                })?
+                .parse::<f64>()
+                .map_err(|err| {
+                    SdkError::InvalidResponse(format!("recent_waves[{i}].utilisation: {err}"))
+                })?;
+            recent_waves.push(RecentWaveSummary {
+                wave_id,
+                gas_used,
+                gas_limit,
+                utilisation,
+            });
+        }
+        Ok(FeeData {
+            base_fee,
+            suggested_tip,
+            wave_id,
+            recent_waves,
+        })
     }
 
     async fn get_hard_finality_cert(&self, wave_id: u64) -> Result<Option<Value>, SdkError> {

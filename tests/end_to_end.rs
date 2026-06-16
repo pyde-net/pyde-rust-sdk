@@ -72,7 +72,7 @@ async fn full_pipeline_end_to_end_against_mock_node() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok(json!("0x0")))
         .mount(&server)
         .await;

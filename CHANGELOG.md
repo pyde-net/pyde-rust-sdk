@@ -9,6 +9,21 @@ pre-1.0 may have breaking changes at any minor bump (see
 ## [Unreleased]
 
 ### Added
+- **Two new `Provider` methods** matching engine #333 / #337:
+  - `get_wave_head()` → `pyde_getWave` (no-arg form). Returns the
+    latest committed wave in one round-trip; pairs with the
+    engine's light-client head query. `None` only on a chain
+    that has never committed a wave.
+  - `get_fee_data()` → `pyde_getFeeData`. Current base-fee +
+    suggested-tip snapshot plus the last 10 committed waves'
+    gas utilisation (driving a wallet's gas-price slider or
+    network-load chart in one round-trip).
+- Reworked `FeeData` struct: dropped the `gas_price` field
+  (was an unused alias for `base_fee`); added `wave_id`,
+  `suggested_tip` (always `0` in v1, future-proof), and
+  `recent_waves: Vec<RecentWaveSummary>`. New
+  `RecentWaveSummary { wave_id, gas_used, gas_limit, utilisation }`
+  type for per-wave entries.
 - **Three new `Provider` methods** matching engine PR-326's RPC
   catalog additions:
   - `send_raw_encrypted_transaction(envelope_hex)` →
@@ -76,6 +91,11 @@ pre-1.0 may have breaking changes at any minor bump (see
   + errors + example code + expected output for every public function.
 
 ### Changed
+- `Provider::get_nonce` now sends `pyde_getNonce` (the canonical
+  Chapter 17.4 name) instead of `pyde_getTransactionCount`. The
+  engine accepts both — the swap is wire-equivalent for users on
+  any engine ≥ #337; older engines that don't dispatch the alias
+  would error, but those don't exist in the deployed network.
 - All docs + examples now point at `otigen devnet` (port `9933`) for
   the local chain runtime. The previous `pyde devnet` (port `8545`)
   references assumed users had cloned `pyde-net/engine`; the new path

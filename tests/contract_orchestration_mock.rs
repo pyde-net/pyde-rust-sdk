@@ -141,7 +141,7 @@ async fn orchestration_two_contracts_send_wait_call_cycle() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok(json!("0x0")))
         .mount(&server)
         .await;
@@ -264,7 +264,7 @@ async fn orchestration_pending_tx_rejects_mismatched_receipt() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok(json!("0x0")))
         .mount(&server)
         .await;
@@ -316,7 +316,7 @@ async fn orchestration_call_after_send_uses_fresh_provider_state() {
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok(json!("0x0")))
         .mount(&server)
         .await;

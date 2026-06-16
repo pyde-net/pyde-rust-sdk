@@ -102,10 +102,10 @@ async fn get_balance_decodes_quanta() {
 }
 
 #[tokio::test]
-async fn get_nonce_decodes() {
+async fn get_nonce_decodes_via_canonical_name() {
     let (provider, server) = provider_with_server().await;
     Mock::given(method("POST"))
-        .and(match_method("pyde_getTransactionCount"))
+        .and(match_method("pyde_getNonce"))
         .respond_with(ok_response(json!("0x7")))
         .mount(&server)
         .await;
@@ -268,6 +268,88 @@ async fn send_raw_transaction_round_trips() {
         .await;
     let returned = provider.send_raw_transaction(&tx).await.unwrap();
     assert_eq!(returned, expected);
+}
+
+// ── get_wave_head + get_fee_data (engine #333 / #337) ───────────
+
+#[tokio::test]
+async fn get_wave_head_sends_empty_params() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getWave"))
+        .and(body_partial_json(json!({ "params": [] })))
+        .respond_with(ok_response(json!({
+            "wave_id": "0x42",
+            "state_root": "0xab"
+        })))
+        .mount(&server)
+        .await;
+    let v = provider.get_wave_head().await.unwrap().unwrap();
+    assert_eq!(v["wave_id"], "0x42");
+}
+
+#[tokio::test]
+async fn get_wave_head_handles_null() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getWave"))
+        .respond_with(ok_response(Value::Null))
+        .mount(&server)
+        .await;
+    assert!(provider.get_wave_head().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn get_fee_data_decodes_full_shape() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getFeeData"))
+        .respond_with(ok_response(json!({
+            "base_fee": "0x174876e800",
+            "suggested_tip": "0x0",
+            "wave_id": "0x2a",
+            "recent_waves": [
+                {
+                    "wave_id": "0x29",
+                    "gas_used": "0x5208",
+                    "gas_limit": "0x2faf080",
+                    "utilisation": "0.0001"
+                },
+                {
+                    "wave_id": "0x28",
+                    "gas_used": "0x186a0",
+                    "gas_limit": "0x2faf080",
+                    "utilisation": "0.0003"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let fd = provider.get_fee_data().await.unwrap();
+    assert_eq!(fd.base_fee, 0x174876e800u128);
+    assert_eq!(fd.suggested_tip, 0);
+    assert_eq!(fd.wave_id, 42);
+    assert_eq!(fd.recent_waves.len(), 2);
+    assert_eq!(fd.recent_waves[0].wave_id, 0x29);
+    assert_eq!(fd.recent_waves[0].gas_used, 0x5208);
+    assert_eq!(fd.recent_waves[0].gas_limit, 0x2faf080);
+    assert!((fd.recent_waves[0].utilisation - 0.0001).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn get_fee_data_rejects_missing_base_fee() {
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getFeeData"))
+        .respond_with(ok_response(json!({
+            "suggested_tip": "0x0",
+            "wave_id": "0x0",
+            "recent_waves": []
+        })))
+        .mount(&server)
+        .await;
+    let err = provider.get_fee_data().await.unwrap_err();
+    assert!(format!("{err}").contains("missing base_fee"));
 }
 
 // ── Errors ──────────────────────────────────────────────────────
