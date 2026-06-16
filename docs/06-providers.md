@@ -494,23 +494,14 @@ See [§6.5](#65-simulating).
 
 | | |
 |---|---|
-| Signature | `async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError>` |
+| Signature | `async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>` |
 | Wire | `pyde_getReceipt` |
-| Returns | A `RawReceipt` (different shape from `get_transaction_receipt` — raw-serde, see below). `None` if the receipt isn't in the consensus archive. |
+| Returns | The receipt if the tx has committed, `None` if it isn't in the consensus archive. |
 
-**Different wire shape from `get_transaction_receipt`.** The
-two methods read from different storage tiers and the engine
-emits them in two distinct formats:
-
-| Field | `Receipt` (from `get_transaction_receipt`) | `RawReceipt` (from `get_receipt`) |
-|---|---|---|
-| `tx_hash` | hex string | 32-byte int array |
-| `wave_id` / `tx_index` / `gas_used` / `fee_paid` | hex string | raw integers |
-| `status` | snake_case enum | PascalCase enum |
-| `return_data` | hex string | `Vec<u8>` byte array |
-
-Use `get_transaction_receipt` for dapp / wallet flows; use
-`get_receipt` for archival queries past the hot-state TTL.
+Same shape as `get_transaction_receipt` (hex strings everywhere)
+— reads from the consensus archive instead of the hot
+active-state map. Use this for archival queries past the
+hot-state TTL; use `get_transaction_receipt` for the hot path.
 `PendingTx::wait_for_receipt` uses `get_transaction_receipt`
 internally.
 

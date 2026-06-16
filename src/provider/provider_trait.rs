@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 
 use crate::error::SdkError;
 use crate::types::{
-    AccountInfo, Address, CallRequest, Event, EventFilter, LogFilter, LogPage, NodeInfo,
-    RawReceipt, Receipt, SimulationResult, ThresholdPublicKey, Tx, TxHash,
+    AccountInfo, Address, CallRequest, Event, EventFilter, LogFilter, LogPage, NodeInfo, Receipt,
+    SimulationResult, ThresholdPublicKey, Tx, TxHash,
 };
 
 use super::pending::PendingTx;
@@ -171,20 +171,14 @@ pub trait Provider: Send + Sync {
     /// the hot active-state map [`Self::get_transaction_receipt`]
     /// reads from).
     ///
-    /// **Different wire shape from `get_transaction_receipt`.** The
-    /// engine emits this method's response via raw
-    /// `serde_json::to_value(Receipt)` — numeric fields as raw
-    /// integers, `tx_hash` as a `[u8; 32]` JSON array, `status`
-    /// as PascalCase. Hence the [`RawReceipt`] return type;
-    /// see its doc for the field-by-field delta vs [`Receipt`].
-    ///
+    /// Same wire shape as [`Self::get_transaction_receipt`] — hex
+    /// strings throughout — so the deserialised type is identical.
     /// Use this for archival queries (e.g., explorer back-pages
-    /// past the hot-state TTL). For dapps + wallets that just
+    /// past the hot-state TTL); for dapps + wallets that just
     /// want "did my tx commit?" use
-    /// [`Self::get_transaction_receipt`] — it hits the same
-    /// underlying data via the hot path and emits the friendlier
-    /// hex-string shape.
-    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError>;
+    /// [`Self::get_transaction_receipt`] — same underlying data,
+    /// hot path is faster.
+    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError>;
 
     /// `pyde_getTx` — full committed transaction by hash.
     ///
@@ -469,7 +463,7 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
             .map_err(|e| SdkError::InvalidResponse(format!("get_transaction_receipt: {e}")))
     }
 
-    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<RawReceipt>, SdkError> {
+    async fn get_receipt(&self, hash: &TxHash) -> Result<Option<Receipt>, SdkError> {
         let hash_hex = format!("0x{}", hex::encode(hash.as_bytes()));
         let v = self
             .transport
