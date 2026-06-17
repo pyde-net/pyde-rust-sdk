@@ -9,11 +9,19 @@ edition = "2021"
 rust-version = "1.75"
 description = "Rust SDK for the Pyde blockchain — account generation, signing, RPC client, contract interaction"
 repository = "https://github.com/pyde-net/pyde-rust-sdk"
+homepage = "https://pyde.network"
+documentation = "https://docs.rs/pyde-rust-sdk"
+readme = "README.md"
+keywords = ["blockchain", "pyde", "post-quantum", "falcon", "rpc-client"]
+categories = ["cryptography", "api-bindings", "asynchronous"]
 
 [dependencies]
 # ── Crypto (sibling path-dep per pyde-net convention) ─────────────────
 # FALCON-512 signatures, Poseidon2 hashing, Blake3, Kyber-768.
-pyde-crypto = { path = "../pyde-crypto" }
+# `path` resolves locally during dev; `version` is what cargo
+# publishes against once pyde-crypto ships to crates.io. Both forms
+# must coexist so `cargo publish` accepts the manifest.
+pyde-crypto = { path = "../pyde-crypto", version = "0.1.0-testnet.1" }
 
 # ── Async runtime + transport ────────────────────────────────────────
 tokio = { version = "1", features = ["time", "sync", "macros", "rt-multi-thread"] }
@@ -50,7 +58,7 @@ thiserror = "2"
 # pyde_abi! lives in a separate crate because Rust requires
 # proc-macros to be in a `proc-macro = true` crate. Re-exported
 # via `pub use pyde_sdk_macros::pyde_abi;` from `src/contract/`.
-pyde-sdk-macros = { path = "./pyde-sdk-macros" }
+pyde-sdk-macros = { path = "./pyde-sdk-macros", version = "0.1.0" }
 
 [dev-dependencies]
 anyhow = "1"
