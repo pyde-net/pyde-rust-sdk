@@ -76,7 +76,7 @@ fn event_signature_topic_matches_canonical_blake3() {
         indexed_mask: 0b011,
     };
     let topic = event_signature_topic(&ev);
-    let expected: [u8; 32] = *blake3::hash(b"Transfer(address,address,u128)").as_bytes();
+    let expected: [u8; 32] = *blake3::hash(b"Transfer(address,address,uint128)").as_bytes();
     assert_eq!(topic, expected);
 }
 

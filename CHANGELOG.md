@@ -109,6 +109,17 @@ pre-1.0 may have breaking changes at any minor bump (see
   `RetryConfig::no_retry()` if your dapp needs first-try-wins semantics.
 
 ### Fixed
+- **Event-signature canonical type names** — `write_canonical_type`
+  now emits Solidity-style `uintN` / `intN` (matching the otigen
+  `declare_events!` macro + ts-sdk + downstream explorers / indexers)
+  instead of Rust-style `uN` / `iN`. Previously the SDK's
+  reconstructed topic-0 didn't match the engine-emitted topic-0
+  for any event whose author wrote a Solidity-style signature
+  in `otigen.toml` — so `Contract::event_filter_for(name)` returned
+  zero matches from `get_logs` and `Contract::decode_event` failed
+  with "no event in ABI matches topic 0". Caught by the rust-sdk
+  coverage pass against `otigen/examples/state-and-emit`
+  (`Incremented(uint64,uint64,uint64)`).
 - Doc-comment in `src/types/tx_types.rs` for `EmergencyPause` no
   longer says "halt block production" (wave-not-block terminology).
 - Removed the false claim in README + `src/wallet/mod.rs` that the

@@ -308,17 +308,24 @@ pub fn event_signature_topic(event: &EventAbi) -> [u8; 32] {
 
 fn write_canonical_type(out: &mut String, ty: &crate::types::ParamType) {
     use crate::types::ParamType as P;
+    // Canonical event-signature type names follow the Solidity
+    // convention (`uintN` / `intN`) — the same convention the
+    // otigen `declare_events!` macro and downstream consumers
+    // (explorers, indexers, ts-sdk) use. Authors writing
+    // `signature = "Foo(uint64)"` in `otigen.toml` get a topic-0
+    // that matches; the SDK's reconstruction from the parsed
+    // ABI's typed params must use the same names to round-trip.
     match ty {
-        P::U8 => out.push_str("u8"),
-        P::U16 => out.push_str("u16"),
-        P::U32 => out.push_str("u32"),
-        P::U64 => out.push_str("u64"),
-        P::U128 => out.push_str("u128"),
-        P::I8 => out.push_str("i8"),
-        P::I16 => out.push_str("i16"),
-        P::I32 => out.push_str("i32"),
-        P::I64 => out.push_str("i64"),
-        P::I128 => out.push_str("i128"),
+        P::U8 => out.push_str("uint8"),
+        P::U16 => out.push_str("uint16"),
+        P::U32 => out.push_str("uint32"),
+        P::U64 => out.push_str("uint64"),
+        P::U128 => out.push_str("uint128"),
+        P::I8 => out.push_str("int8"),
+        P::I16 => out.push_str("int16"),
+        P::I32 => out.push_str("int32"),
+        P::I64 => out.push_str("int64"),
+        P::I128 => out.push_str("int128"),
         P::Bool => out.push_str("bool"),
         P::Address => out.push_str("address"),
         P::Bytes => out.push_str("bytes"),
@@ -547,7 +554,7 @@ mod tests {
             indexed_mask: 0b011,
         };
         let topic = event_signature_topic(&ev);
-        let expected = blake3::hash(b"Transfer(address,address,u128)");
+        let expected = blake3::hash(b"Transfer(address,address,uint128)");
         assert_eq!(topic, *expected.as_bytes());
     }
 
@@ -565,7 +572,7 @@ mod tests {
     fn canonical_event_signature_format() {
         let mut s = String::new();
         write_canonical_type(&mut s, &ParamType::Vec(Box::new(ParamType::U64)));
-        assert_eq!(s, "u64[]");
+        assert_eq!(s, "uint64[]");
         let mut s = String::new();
         write_canonical_type(
             &mut s,
@@ -574,7 +581,7 @@ mod tests {
                 value: Box::new(ParamType::U128),
             },
         );
-        assert_eq!(s, "map<string,u128>");
+        assert_eq!(s, "map<string,uint128>");
         let mut s = String::new();
         write_canonical_type(&mut s, &ParamType::FixedBytes(8));
         assert_eq!(s, "bytes8");
