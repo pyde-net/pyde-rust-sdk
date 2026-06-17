@@ -71,8 +71,8 @@ use crate::types::{
 /// `Wallet` is dropped the 1281-byte secret-key buffer is wiped
 /// before the allocator reclaims the memory. You don't need to
 /// call any explicit cleanup — letting the `Wallet` go out of
-/// scope is enough. See [`wallet_drop_wipes_secret`] (in tests)
-/// for the test pin.
+/// scope is enough. See `wallet_drop_wipes_secret` in
+/// `tests/wallet_drop.rs` for the test pin.
 pub struct Wallet {
     signer: LocalSigner,
 }

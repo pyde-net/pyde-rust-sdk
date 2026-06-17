@@ -89,6 +89,13 @@ pre-1.0 may have breaking changes at any minor bump (see
   for every public utility function and every public constant.
 - Per-API expansion across all 12 existing doc chapters: args + returns
   + errors + example code + expected output for every public function.
+- Crates.io metadata: `homepage`, `documentation`, `readme`,
+  `keywords` (`blockchain`, `pyde`, `post-quantum`, `falcon`,
+  `rpc-client`), `categories` (`cryptography`, `api-bindings`,
+  `asynchronous`). Path-deps (`pyde-crypto`, `pyde-sdk-macros`)
+  now carry paired `version` requirements so `cargo publish`
+  accepts the manifest — actual publish still blocked on the
+  upstream deps shipping to crates.io.
 
 ### Changed
 - `Provider::get_nonce` now sends `pyde_getNonce` (the canonical
@@ -109,6 +116,11 @@ pre-1.0 may have breaking changes at any minor bump (see
   `RetryConfig::no_retry()` if your dapp needs first-try-wins semantics.
 
 ### Fixed
+- Broken intra-doc link `[\`wallet_drop_wipes_secret\`]` in
+  `src/wallet/mod.rs` — the target lives in `tests/` (not visible
+  to rustdoc). Now a plain code-ref `wallet_drop_wipes_secret` +
+  file pointer; unblocks `cargo doc --workspace --no-deps`
+  with `-D warnings` (the docs.rs build invocation).
 - **Event-signature canonical type names** — `write_canonical_type`
   now emits Solidity-style `uintN` / `intN` (matching the otigen
   `declare_events!` macro + ts-sdk + downstream explorers / indexers)
