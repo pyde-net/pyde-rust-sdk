@@ -75,7 +75,8 @@ pub use types::{
     AccessEntry, AccessType, AccountInfo, AccountType, Address, AuthKeys, BlockHeader,
     CallOverrides, CallPayload, CallRequest, Event, EventFilter, FalconPubkey, FalconSignature,
     FeeData, FeePayer, Log, LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus,
-    RecentWaveSummary, SimulationResult, ThresholdPublicKey, Tx, TxHash, TxType, WaveHeader,
+    RecentWaveSummary, RevertCategory, RevertReason, SimulationResult, ThresholdPublicKey, Tx,
+    TxHash, TxType, WaveHeader,
 };
 pub use wallet::{Keystore, Wallet};
 pub use ws::{Subscription, WsProvider, WsTransport};

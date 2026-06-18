@@ -244,6 +244,152 @@ async fn get_receipt_handles_null() {
     assert!(provider.get_receipt(&hash).await.unwrap().is_none());
 }
 
+// ── Structured revert_reason (engine #349) ──────────────────────
+
+#[tokio::test]
+async fn receipt_decodes_structured_engine_validation_revert_reason() {
+    use pyde_rust_sdk::types::{ReceiptStatus, RevertCategory};
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTransactionReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": "0xabababababababababababababababababababababababababababababababab",
+            "wave_id": "0x5",
+            "tx_index": "0x0",
+            "status": "reverted",
+            "gas_used": "0x5208",
+            "fee_paid": "0x5208",
+            "return_data": "0x",
+            "events": [],
+            "revert_reason": {
+                "category": "EngineValidation",
+                "message": "nonce out of window: provided=17, window_start=18"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let hash = TxHash::new([0xAB; 32]);
+    let r = provider
+        .get_transaction_receipt(&hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(r.status, ReceiptStatus::Reverted));
+    let reason = r.revert_reason.as_ref().expect("structured reason present");
+    assert!(matches!(reason.category, RevertCategory::EngineValidation));
+    assert!(reason.message.contains("nonce out of window"));
+    assert!(r.is_engine_validation_revert());
+    assert!(!r.is_contract_revert());
+    assert!(!r.is_vm_trap());
+}
+
+#[tokio::test]
+async fn receipt_decodes_structured_contract_revert_reason() {
+    use pyde_rust_sdk::types::RevertCategory;
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTransactionReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": "0x".to_string() + &"c0".repeat(32),
+            "wave_id": "0x1", "tx_index": "0x0",
+            "status": "reverted", "gas_used": "0x100",
+            "fee_paid": "0x100", "return_data": "0x", "events": [],
+            "revert_reason": { "category": "Contract", "message": "ERR_FORBIDDEN" }
+        })))
+        .mount(&server)
+        .await;
+    let r = provider
+        .get_transaction_receipt(&TxHash::new([0xC0; 32]))
+        .await
+        .unwrap()
+        .unwrap();
+    let reason = r.revert_reason.as_ref().unwrap();
+    assert!(matches!(reason.category, RevertCategory::Contract));
+    assert_eq!(reason.message, "ERR_FORBIDDEN");
+    assert!(r.is_contract_revert());
+}
+
+#[tokio::test]
+async fn receipt_decodes_structured_vm_revert_reason() {
+    use pyde_rust_sdk::types::RevertCategory;
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTransactionReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": "0x".to_string() + &"f0".repeat(32),
+            "wave_id": "0x1", "tx_index": "0x0",
+            "status": "reverted", "gas_used": "0x100",
+            "fee_paid": "0x100", "return_data": "0x", "events": [],
+            "revert_reason": { "category": "Vm", "message": "Trap(MemoryOutOfBounds)" }
+        })))
+        .mount(&server)
+        .await;
+    let r = provider
+        .get_transaction_receipt(&TxHash::new([0xF0; 32]))
+        .await
+        .unwrap()
+        .unwrap();
+    let reason = r.revert_reason.as_ref().unwrap();
+    assert!(matches!(reason.category, RevertCategory::Vm));
+    assert!(reason.message.contains("MemoryOutOfBounds"));
+    assert!(r.is_vm_trap());
+}
+
+#[tokio::test]
+async fn receipt_tolerates_unknown_category_for_forward_compat() {
+    use pyde_rust_sdk::types::RevertCategory;
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTransactionReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": "0xff".repeat(32),
+            "wave_id": "0x1", "tx_index": "0x0",
+            "status": "reverted", "gas_used": "0x100",
+            "fee_paid": "0x100", "return_data": "0x", "events": [],
+            "revert_reason": { "category": "BrandNewCategoryEngineShippedThisMorning", "message": "..." }
+        })))
+        .mount(&server)
+        .await;
+    let r = provider
+        .get_transaction_receipt(&TxHash::new([0xFF; 32]))
+        .await
+        .unwrap()
+        .unwrap();
+    let reason = r.revert_reason.as_ref().unwrap();
+    match &reason.category {
+        RevertCategory::Other(s) => {
+            assert_eq!(s, "BrandNewCategoryEngineShippedThisMorning");
+        }
+        other => panic!("expected Other, got {other:?}"),
+    }
+    assert!(!reason.category.is_known());
+}
+
+#[tokio::test]
+async fn receipt_without_revert_reason_field_deserialises_with_none() {
+    // Pre-#349 engines (and post-#349 success receipts) omit the
+    // field. #[serde(default)] makes the SDK deserialise it as None
+    // without erroring.
+    let (provider, server) = provider_with_server().await;
+    Mock::given(method("POST"))
+        .and(match_method("pyde_getTransactionReceipt"))
+        .respond_with(ok_response(json!({
+            "tx_hash": "0xab".repeat(32),
+            "wave_id": "0x5", "tx_index": "0x0",
+            "status": "reverted", "gas_used": "0x100",
+            "fee_paid": "0x100", "return_data": "0x", "events": []
+        })))
+        .mount(&server)
+        .await;
+    let r = provider
+        .get_transaction_receipt(&TxHash::new([0xAB; 32]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(r.revert_reason.is_none());
+    assert!(!r.is_engine_validation_revert());
+}
+
 // ── send_raw_transaction ────────────────────────────────────────
 
 #[tokio::test]

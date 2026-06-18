@@ -89,6 +89,30 @@ pre-1.0 may have breaking changes at any minor bump (see
   for every public utility function and every public constant.
 - Per-API expansion across all 12 existing doc chapters: args + returns
   + errors + example code + expected output for every public function.
+- **Structured `revert_reason` plumbing** (engine #349). New types
+  `RevertCategory` (`EngineValidation` / `Contract` / `Vm` /
+  `Other(String)` for forward-compat) and `RevertReason
+  { category, message }` mirror the engine's `pyde_engine_types`
+  wire shape. `Receipt.revert_reason: Option<RevertReason>` is
+  populated when the engine emits the field (post-#349) and
+  `None` for older nodes — backward-compat preserved via
+  `#[serde(default)]`. Three new `Receipt` accessors
+  (`is_engine_validation_revert`, `is_contract_revert`,
+  `is_vm_trap`) make explorer/wallet badging trivial.
+- **`SdkError::Reverted` carries the structured reason.** New
+  `SdkError` methods: `revert_category()`,
+  `is_engine_validation_revert()`, `is_contract_revert()`,
+  `is_vm_trap()`. The `Reverted` variant gained a
+  `reason: Option<RevertReason>` field — branch on category for
+  UX (engine-side rejects deserve different treatment than
+  contract `revert(msg)` than VM traps).
+- **`SdkError::from_receipt(&Receipt) -> Option<Self>`** maps a
+  non-success receipt to the right `SdkError` variant.
+  `OutOfGas` synthesises a `Vm`-category reason; `Reverted`
+  carries the engine's structured reason through (or `None` for
+  pre-#349 receipts). Drops the boilerplate where dapps were
+  re-deriving the error variant from status + return_data
+  manually.
 - Crates.io metadata: `homepage`, `documentation`, `readme`,
   `keywords` (`blockchain`, `pyde`, `post-quantum`, `falcon`,
   `rpc-client`), `categories` (`cryptography`, `api-bindings`,
@@ -98,6 +122,13 @@ pre-1.0 may have breaking changes at any minor bump (see
   upstream deps shipping to crates.io.
 
 ### Changed
+- **Breaking**: `SdkError::Reverted` now has a third field —
+  `reason: Option<RevertReason>`. Callers using struct-syntax
+  pattern matching need to add `reason: _` (or destructure it).
+  Constructions need `reason: None` (older code path) or
+  `reason: receipt.revert_reason.clone()` (when building from a
+  receipt). Idiomatic path is `SdkError::from_receipt(&receipt)`
+  which handles both forks.
 - `Provider::get_nonce` now sends `pyde_getNonce` (the canonical
   Chapter 17.4 name) instead of `pyde_getTransactionCount`. The
   engine accepts both — the swap is wire-equivalent for users on

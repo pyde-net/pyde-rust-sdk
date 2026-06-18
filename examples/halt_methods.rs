@@ -134,6 +134,7 @@ fn explain(label: &str, receipt: &Receipt) {
     let err = SdkError::Reverted {
         gas_used: receipt.gas(),
         data: return_data.clone(),
+        reason: receipt.revert_reason.clone(),
     };
     match err.revert_reason() {
         Some(reason) => println!("  reason:        {reason:?}"),
