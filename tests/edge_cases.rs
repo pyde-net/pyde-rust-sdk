@@ -154,6 +154,7 @@ fn empty_receipt() -> Receipt {
         fee_paid: "0xABCD".into(),
         return_data: "0xDEADBEEF".into(),
         events: vec![],
+        revert_reason: None,
     }
 }
 

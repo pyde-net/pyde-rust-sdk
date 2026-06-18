@@ -18,7 +18,7 @@
 
 use thiserror::Error;
 
-use crate::types::ErrorCode;
+use crate::types::{ErrorCode, Receipt, RevertCategory, RevertReason};
 
 /// Errors returned from SDK operations.
 ///
@@ -48,13 +48,25 @@ pub enum SdkError {
     /// Transaction reverted on-chain. State changes rolled back;
     /// gas is still charged per
     /// [`crate::types::ReceiptStatus::Reverted`].
-    #[error("{}", format_revert(.gas_used, .data))]
+    ///
+    /// `reason` carries the engine's structured revert reason
+    /// when available (engine #349+) — `Some` for any
+    /// `status: "reverted"` receipt the SDK constructed from a
+    /// post-#349 node, `None` when the SDK derived the revert
+    /// from `return_data` alone (older nodes / direct constructions).
+    /// Branch on [`Self::revert_category`] for control-flow
+    /// decisions; use `reason.message` for display.
+    #[error("{}", format_revert(.gas_used, .data, .reason.as_ref()))]
     Reverted {
         /// Gas charged before the revert.
         gas_used: u64,
         /// Return data emitted by `pyde::revert(...)` (UTF-8 if
         /// possible).
         data: Vec<u8>,
+        /// Structured revert reason from the engine (#349+).
+        /// `None` for receipts from older engines — call
+        /// [`Self::revert_reason`] to decode from `data`.
+        reason: Option<RevertReason>,
     },
 
     /// Sender's balance is too low to cover
@@ -177,6 +189,86 @@ impl SdkError {
     pub fn is_revert(&self) -> bool {
         matches!(self, SdkError::Reverted { .. })
     }
+
+    /// Structured revert category from the engine (#349+).
+    /// Returns `None` for non-revert errors or revert errors
+    /// constructed from a pre-#349 receipt that didn't carry a
+    /// structured reason.
+    ///
+    /// Branch on this — not [`Self::revert_reason`] — for
+    /// control flow:
+    ///
+    /// ```ignore
+    /// match err.revert_category() {
+    ///     Some(RevertCategory::EngineValidation) => /* nonce/balance/etc */,
+    ///     Some(RevertCategory::Contract)         => /* user's contract said no */,
+    ///     Some(RevertCategory::Vm)               => /* trap / OOM / OOG */,
+    ///     _                                      => /* not a revert, or older engine */,
+    /// }
+    /// ```
+    #[must_use]
+    pub fn revert_category(&self) -> Option<&RevertCategory> {
+        match self {
+            SdkError::Reverted { reason, .. } => reason.as_ref().map(|r| &r.category),
+            _ => None,
+        }
+    }
+
+    /// `true` iff this revert error carries
+    /// `category == EngineValidation` (nonce, balance, fee,
+    /// access-list, dispatch decode).
+    #[must_use]
+    pub fn is_engine_validation_revert(&self) -> bool {
+        matches!(
+            self.revert_category(),
+            Some(RevertCategory::EngineValidation)
+        )
+    }
+
+    /// `true` iff this revert error carries `category == Contract`
+    /// (contract code called `revert(msg)`).
+    #[must_use]
+    pub fn is_contract_revert(&self) -> bool {
+        matches!(self.revert_category(), Some(RevertCategory::Contract))
+    }
+
+    /// `true` iff this revert error carries `category == Vm`
+    /// (wasmtime trap, OOB memory, executor-side gas exhaustion).
+    #[must_use]
+    pub fn is_vm_trap(&self) -> bool {
+        matches!(self.revert_category(), Some(RevertCategory::Vm))
+    }
+
+    /// Construct an [`SdkError`] from a [`Receipt`] whose
+    /// `status != Success`. Returns `None` for success
+    /// receipts (which aren't errors).
+    ///
+    /// Out-of-gas → [`SdkError::Reverted`] with synthesised
+    /// reason `Some({category: Vm, message: "out of gas"})`.
+    /// Reverted with structured reason → carried through.
+    /// Reverted without structured reason → bytes-only.
+    #[must_use]
+    pub fn from_receipt(receipt: &Receipt) -> Option<Self> {
+        use crate::types::ReceiptStatus;
+        let gas_used = receipt.try_gas().unwrap_or(0);
+        let data = receipt.try_return_bytes().unwrap_or_default();
+        match receipt.status {
+            ReceiptStatus::Success => None,
+            ReceiptStatus::OutOfGas => Some(SdkError::Reverted {
+                gas_used,
+                data,
+                reason: Some(RevertReason {
+                    category: RevertCategory::Vm,
+                    message: "out of gas".to_string(),
+                }),
+            }),
+            ReceiptStatus::Reverted => Some(SdkError::Reverted {
+                gas_used,
+                data,
+                reason: receipt.revert_reason.clone(),
+            }),
+        }
+    }
 }
 
 /// SDK-wide result alias. Every fallible function in the public
@@ -284,8 +376,16 @@ fn extract_error_code_from_str(reason: &str) -> Option<ErrorCode> {
     None
 }
 
-/// Format a revert error's display text.
-fn format_revert(gas_used: &u64, data: &[u8]) -> String {
+/// Format a revert error's display text. Prefers the engine's
+/// structured `reason` (#349+); falls back to decoding
+/// `data` bytes (older engines / direct constructions).
+fn format_revert(gas_used: &u64, data: &[u8], reason: Option<&RevertReason>) -> String {
+    if let Some(r) = reason {
+        return format!(
+            "transaction reverted [{:?}]: {} (gas={gas_used})",
+            r.category, r.message
+        );
+    }
     if let Some(reason) = decode_revert_reason(data) {
         format!("transaction reverted: {reason} (gas={gas_used})")
     } else {
@@ -404,6 +504,7 @@ mod tests {
         let err = SdkError::Reverted {
             gas_used: 1000,
             data: b"erc721: ERR_INSUFFICIENT_BALANCE".to_vec(),
+            reason: None,
         };
         assert_eq!(err.error_code(), Some(ErrorCode::InsufficientBalance));
         assert!(err.is_revert());
@@ -439,7 +540,8 @@ mod tests {
         assert_eq!(
             SdkError::Reverted {
                 gas_used: 0,
-                data: vec![]
+                data: vec![],
+                reason: None,
             }
             .code(),
             "CALL_EXCEPTION"
@@ -473,5 +575,115 @@ mod tests {
             "INVALID_RESPONSE"
         );
         assert_eq!(SdkError::Other(String::new()).code(), "OTHER");
+    }
+
+    // ── Structured revert_reason wiring (engine #349) ─────────
+
+    #[test]
+    fn revert_category_accessors_branch_on_category() {
+        use crate::types::{RevertCategory, RevertReason};
+
+        let eng = SdkError::Reverted {
+            gas_used: 100,
+            data: vec![],
+            reason: Some(RevertReason {
+                category: RevertCategory::EngineValidation,
+                message: "nonce out of window".into(),
+            }),
+        };
+        assert!(matches!(
+            eng.revert_category(),
+            Some(RevertCategory::EngineValidation)
+        ));
+        assert!(eng.is_engine_validation_revert());
+        assert!(!eng.is_contract_revert());
+        assert!(!eng.is_vm_trap());
+
+        let con = SdkError::Reverted {
+            gas_used: 100,
+            data: vec![],
+            reason: Some(RevertReason {
+                category: RevertCategory::Contract,
+                message: "ERR_FORBIDDEN".into(),
+            }),
+        };
+        assert!(con.is_contract_revert());
+
+        let vm = SdkError::Reverted {
+            gas_used: 100,
+            data: vec![],
+            reason: Some(RevertReason {
+                category: RevertCategory::Vm,
+                message: "Trap(MemoryOutOfBounds)".into(),
+            }),
+        };
+        assert!(vm.is_vm_trap());
+
+        // No structured reason → accessors return None / false.
+        let bare = SdkError::Reverted {
+            gas_used: 100,
+            data: vec![],
+            reason: None,
+        };
+        assert!(bare.revert_category().is_none());
+        assert!(!bare.is_engine_validation_revert());
+    }
+
+    #[test]
+    fn format_revert_prefers_structured_reason() {
+        use crate::types::{RevertCategory, RevertReason};
+        let err = SdkError::Reverted {
+            gas_used: 42_000,
+            data: b"insufficient balance".to_vec(),
+            reason: Some(RevertReason {
+                category: RevertCategory::EngineValidation,
+                message: "insufficient balance for fee+value: needed=42000, available=21000".into(),
+            }),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("EngineValidation"));
+        assert!(msg.contains("needed=42000"));
+        assert!(msg.contains("gas=42000"));
+    }
+
+    #[test]
+    fn from_receipt_maps_each_status() {
+        use crate::types::{Receipt, ReceiptStatus, RevertCategory, RevertReason};
+        fn receipt(status: ReceiptStatus, reason: Option<RevertReason>) -> Receipt {
+            Receipt {
+                tx_hash: "0x".into(),
+                wave_id: "0x1".into(),
+                tx_index: "0x0".into(),
+                status,
+                gas_used: "0x5208".into(),
+                fee_paid: "0x5208".into(),
+                return_data: "0x".into(),
+                events: vec![],
+                revert_reason: reason,
+            }
+        }
+
+        // Success → None
+        assert!(SdkError::from_receipt(&receipt(ReceiptStatus::Success, None)).is_none());
+
+        // OutOfGas → synthesised Vm category
+        let err = SdkError::from_receipt(&receipt(ReceiptStatus::OutOfGas, None)).unwrap();
+        assert!(err.is_vm_trap());
+
+        // Reverted + structured reason → carried through
+        let err = SdkError::from_receipt(&receipt(
+            ReceiptStatus::Reverted,
+            Some(RevertReason {
+                category: RevertCategory::Contract,
+                message: "ERR_FORBIDDEN".into(),
+            }),
+        ))
+        .unwrap();
+        assert!(err.is_contract_revert());
+
+        // Reverted + no structured reason → bare (older engine)
+        let err = SdkError::from_receipt(&receipt(ReceiptStatus::Reverted, None)).unwrap();
+        assert!(err.is_revert());
+        assert!(err.revert_category().is_none());
     }
 }

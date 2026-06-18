@@ -27,6 +27,67 @@ pub enum ReceiptStatus {
     OutOfGas,
 }
 
+/// Which layer rejected a reverted transaction. Mirrors the engine's
+/// `pyde_engine_types::tx::RevertCategory` byte-for-byte.
+///
+/// Branch on the category — never on the human-readable message —
+/// since the engine reserves the right to refine wording across
+/// releases. Unknown categories deserialise as
+/// [`RevertCategory::Other`] for forward compatibility; check
+/// [`Self::is_known`] if you need to detect the unknown case.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum RevertCategory {
+    /// Engine-side pre-execution checks: nonce window, signature,
+    /// fee payment, balance for `fee + value`, access-list
+    /// violation, dispatch decode. The tx never reached contract /
+    /// transfer commit logic; state is unchanged.
+    EngineValidation,
+    /// Contract-emitted revert: explicit `revert(msg)` from contract
+    /// code (or a contract-level abort the VM caught). `message`
+    /// is the contract's revert string, empty if the contract
+    /// didn't supply one.
+    Contract,
+    /// VM-level failure: wasmtime trap, memory out-of-bounds, gas
+    /// exhausted inside the executor, host-fn rejection. Distinct
+    /// from [`Self::Contract`] — the contract didn't *choose* to
+    /// revert, the VM had to stop it.
+    Vm,
+    /// Forward-compat catch-all for a category the SDK doesn't
+    /// know yet (engine shipped a new variant before the SDK was
+    /// updated). The original wire string is preserved so logs /
+    /// telemetry can still surface it.
+    #[serde(untagged)]
+    Other(String),
+}
+
+impl RevertCategory {
+    /// `true` if this is one of the engine's documented categories
+    /// (i.e. not [`Self::Other`]).
+    #[must_use]
+    pub fn is_known(&self) -> bool {
+        !matches!(self, Self::Other(_))
+    }
+}
+
+/// Structured carrier for the `revert_reason` field on a [`Receipt`].
+/// Pairs a category (for UI badging / control flow) with the engine's
+/// human-readable message.
+///
+/// Populated on every `status: "reverted"` receipt produced by an
+/// engine post-#349. Pre-#349 receipts omit the field — the SDK
+/// deserialises that as `None` via `#[serde(default)]`, callers
+/// fall back to [`crate::error::SdkError::revert_reason`] which
+/// decodes from `return_data`.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RevertReason {
+    /// Which layer rejected the tx. Drives explorer badging +
+    /// SDK error-variant selection.
+    pub category: RevertCategory,
+    /// Human-readable reason. Informational — branch on
+    /// [`Self::category`], not the string.
+    pub message: String,
+}
+
 /// Receipt for a committed transaction.
 ///
 /// Returned by `pyde_getReceipt` and `pyde_getTransactionReceipt`.
@@ -55,6 +116,14 @@ pub struct Receipt {
     /// Events emitted during execution (empty for reverts).
     #[serde(default)]
     pub events: Vec<Event>,
+    /// Structured revert reason (engine #349+). Populated when
+    /// `status == Reverted`; omitted on success / out-of-gas
+    /// receipts. Pre-#349 engines don't emit this — the field
+    /// defaults to `None`, callers should fall back to
+    /// [`crate::SdkError::revert_reason`] which decodes from
+    /// `return_data` bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revert_reason: Option<RevertReason>,
 }
 
 /// Strict decode helper for hex `u64` fields.
@@ -86,6 +155,37 @@ impl Receipt {
     #[must_use]
     pub fn is_success(&self) -> bool {
         matches!(self.status, ReceiptStatus::Success)
+    }
+
+    /// `true` iff this receipt has `category == EngineValidation`
+    /// in its structured revert reason. Returns `false` for
+    /// pre-#349 engines that don't populate the field.
+    #[must_use]
+    pub fn is_engine_validation_revert(&self) -> bool {
+        matches!(
+            &self.revert_reason,
+            Some(r) if matches!(r.category, RevertCategory::EngineValidation)
+        )
+    }
+
+    /// `true` iff this receipt has `category == Contract`. Returns
+    /// `false` for pre-#349 engines.
+    #[must_use]
+    pub fn is_contract_revert(&self) -> bool {
+        matches!(
+            &self.revert_reason,
+            Some(r) if matches!(r.category, RevertCategory::Contract)
+        )
+    }
+
+    /// `true` iff this receipt has `category == Vm`. Returns
+    /// `false` for pre-#349 engines.
+    #[must_use]
+    pub fn is_vm_trap(&self) -> bool {
+        matches!(
+            &self.revert_reason,
+            Some(r) if matches!(r.category, RevertCategory::Vm)
+        )
     }
 
     /// Decode `gas_used` to `u64`. Returns `0` on malformed input;
@@ -640,6 +740,7 @@ mod tests {
             fee_paid: String::new(),
             return_data: format!("0x{}", hex::encode(bytes)),
             events: vec![],
+            revert_reason: None,
         };
         let addr = r.contract_address().unwrap();
         assert_eq!(addr.as_bytes(), &bytes);
