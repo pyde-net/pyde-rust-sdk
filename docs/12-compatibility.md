@@ -45,7 +45,9 @@ suite fails before the drift hits production.
 | `MultisigTxPayload` | `pyde_engine_tx::handlers::multisig_tx::MultisigTxPayload` | `target` ‖ `amount` ‖ `bundle`. |
 | `BundleEntry` | `pyde_engine_tx::multisig::BundleEntry` | `signer_index` ‖ `signature`. |
 | Multisig domain bytes | `pyde_engine_tx::multisig::domain_byte` | `0x09`, `0x0A`, `0x0B`, `0x0C`, `0x10`. |
-| `Receipt` | `pyde_engine_types::Receipt` (formatted via `receipt_to_json()`) | Hex-string convention shared by `pyde_getTransactionReceipt` + `pyde_getReceipt` (aligned in engine #335). Numeric fields as `"0x…"`, status as snake_case. |
+| `Receipt` | `pyde_engine_types::Receipt` (formatted via `receipt_to_json()`) | Hex-string convention shared by `pyde_getTransactionReceipt` + `pyde_getReceipt`. Numeric fields as `"0x…"`, status as snake_case. Optional `revert_reason: { category, message }` field is omitted from JSON when absent (`#[serde(default, skip_serializing_if = "Option::is_none")]`) so success/out-of-gas receipts and older nodes round-trip identically. |
+| `RevertReason` | `pyde_engine_types::RevertReason` | JSON struct with field order `category`, `message` (named fields — JSON field order doesn't affect decode). |
+| `RevertCategory` | `pyde_engine_types::RevertCategory` | JSON enum: variants serialise verbatim as `"EngineValidation"`, `"Contract"`, `"Vm"`. Forward-compat `Other(String)` is `#[serde(untagged)]` — unknown strings round-trip as a bare string. |
 | `Event` | `pyde_engine_types::Event` | Hex-string fields throughout (JSON-RPC convention). |
 | `ThresholdPublicKey` | `pyde_engine_types::ThresholdPublicKey` | `pyde_getThresholdPublicKey` result. Fields: `epoch` (hex string), `scheme` (`"mock"` or `"kyber-768"`), `public_key` (hex string). Per-epoch — caller refreshes per encrypted submit. |
 | `EncryptedTxEnvelope` (input to `pyde_sendRawEncryptedTransaction`) | `pyde_engine_types::EncryptedTxEnvelope` | Borsh: 1-byte version + `Vec<u8>` ciphertext. SDK ships hex-encoded; v1 size limits 1213-byte min, 128-KiB max (engine-enforced at admit). |
@@ -121,8 +123,8 @@ crate:
 
 | Shared with TS SDK | Notes |
 |---|---|
-| **Chain wire format** | `Tx`, `TxType`, `AuthKeys`, FALCON pubkey/sig byte shapes, Poseidon2 / Blake3 hashes. A tx signed in Rust verifies fine on a TS-side client (and vice versa). |
-| **Provider trait shape** | Same 23 method names, same JSON-RPC parameter conventions. |
+| **Chain wire format** | `Tx`, `TxType`, `AuthKeys`, `Receipt` (incl. optional `revert_reason: { category, message }` and `RevertCategory` JSON tags `EngineValidation`/`Contract`/`Vm`), FALCON pubkey/sig byte shapes, Poseidon2 / Blake3 hashes. A tx signed in Rust verifies fine on a TS-side client (and vice versa). |
+| **Provider trait shape** | Same JSON-RPC method dispatch + parameter conventions across both SDKs. The rust trait currently exposes 28 async methods; the TS provider mirrors the same RPC surface even when individual method names differ (e.g. rust `get_nonce` vs TS `getNonce`). |
 | **ABI parser** | Both crates parse the same `pyde.abi` custom section into matching structs. |
 
 | NOT shared |

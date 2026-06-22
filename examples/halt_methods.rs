@@ -50,7 +50,7 @@ use std::time::Duration;
 
 use pyde_rust_sdk::constants::{GAS_DEPLOY, GAS_ERC20_CALL};
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
-use pyde_rust_sdk::types::{ContractType, ErrorCode, Tx};
+use pyde_rust_sdk::types::{ContractType, ErrorCode, RevertCategory, Tx};
 use pyde_rust_sdk::{
     Address, CallPayload, CallRequest, PendingTx, Provider, Receipt, ReceiptStatus, SdkError,
     Signer, TxBuilder, Wallet,
@@ -136,6 +136,17 @@ fn explain(label: &str, receipt: &Receipt) {
         data: return_data.clone(),
         reason: receipt.revert_reason.clone(),
     };
+    let category_label = match err.revert_category() {
+        Some(RevertCategory::EngineValidation) => "engine validation",
+        Some(RevertCategory::Contract) => "contract revert",
+        Some(RevertCategory::Vm) => "VM trap",
+        Some(RevertCategory::Other(s)) => {
+            println!("  category:      <unknown: {s}>");
+            return;
+        }
+        None => "<no structured category>",
+    };
+    println!("  category:      {category_label}");
     match err.revert_reason() {
         Some(reason) => println!("  reason:        {reason:?}"),
         None => println!("  reason:        <no decodable payload — likely WASM trap>"),
@@ -148,10 +159,21 @@ fn explain(label: &str, receipt: &Receipt) {
     println!("  → user-facing: {}", precise_user_message(&err));
 }
 
-/// What a dapp would actually show its user. Demonstrates that the
-/// SDK's structured shape lets you build a clean diagnostic in
-/// O(one match) without string parsing.
+/// Demonstrates one match on `RevertCategory`, with string heuristics
+/// only as last-resort UX polish for contract-side reverts where the
+/// engine doesn't supply a typed error code.
 fn precise_user_message(err: &SdkError) -> String {
+    if err.is_engine_validation_revert() {
+        if let SdkError::Reverted {
+            reason: Some(r), ..
+        } = err
+        {
+            return format!("⚙ Rejected before execution: {}", r.message);
+        }
+    }
+    if err.is_vm_trap() {
+        return "❌ Contract trapped (panic / out-of-bounds).".into();
+    }
     if let Some(code) = err.error_code() {
         return match code {
             ErrorCode::Forbidden => "❌ This action isn't permitted.".into(),
@@ -165,13 +187,15 @@ fn precise_user_message(err: &SdkError) -> String {
             other => format!("❌ Chain returned {other}"),
         };
     }
-    if let Some(reason) = err.revert_reason() {
-        if reason.starts_with("unauthorized") {
-            return "🔒 You're not authorised to do that.".into();
+    if err.is_contract_revert() {
+        if let Some(reason) = err.revert_reason() {
+            if reason.starts_with("unauthorized") {
+                return "🔒 You're not authorised to do that.".into();
+            }
+            return format!("❌ Reverted: {reason}");
         }
-        return format!("❌ Reverted: {reason}");
     }
-    "❌ Reverted (the contract trapped with no message)".into()
+    "❌ Reverted (no decodable payload)".into()
 }
 
 #[tokio::main]
@@ -278,6 +302,10 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
     explain("named-token revert (ERR_FORBIDDEN)", &receipt);
+    assert!(
+        receipt.is_contract_revert() || receipt.revert_reason.is_none(),
+        "expected contract category or no structured reason"
+    );
 
     // ── 6. Halt — revert payload contains "-5" ───────────────
     println!("\n[halt 4/5] stranger.cause_revert_with_negative_code — expect integer-code revert");
@@ -288,6 +316,10 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
     explain("integer-code revert (-5)", &receipt);
+    assert!(
+        receipt.is_contract_revert() || receipt.revert_reason.is_none(),
+        "expected contract category or no structured reason"
+    );
 
     // ── 7. Halt — WASM trap (no revert payload) ──────────────
     println!("\n[halt 5/5] stranger.cause_panic — expect WASM trap, no payload");
@@ -298,6 +330,10 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
     explain("WASM trap", &receipt);
+    assert!(
+        receipt.is_vm_trap() || receipt.revert_reason.is_none(),
+        "expected vm trap category or no structured reason"
+    );
 
     println!("\n✔ halt-method demonstration complete");
     Ok(())

@@ -511,11 +511,21 @@ deployed access-guard at 0x...
 ✔ all halt modes parsed correctly
 ```
 
+The SDK also surfaces this last case as `RevertCategory::Vm` via
+the structured `revert_reason` field on the receipt — see
+[Errors §9.9](09-errors.md#99-structured-revert-categories) for
+branching on the failure *layer* without parsing messages.
+
 **Surfaces shown:**
 - `TxBuilder::deploy` with a Go-authored WASM
 - `SdkError::Reverted` + `revert_reason()` decoding
 - `SdkError::error_code()` with both named-token and integer
   extraction paths
+- `SdkError::from_receipt(&receipt)` for converting a non-success
+  `Receipt` to the matching variant
+- `revert_category()` / `is_engine_validation_revert()` /
+  `is_contract_revert()` / `is_vm_trap()` for branching on the
+  *layer* that rejected the tx without parsing messages
 - Every revert encoding the chain supports
 
 ---

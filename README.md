@@ -26,7 +26,7 @@ Comprehensive docs live in [`docs/`](docs/README.md) — 14 chapters with detail
 6. [Providers](docs/06-providers.md) — `HttpProvider`, `WsProvider`, every RPC method, `PendingTx`, retry policy
 7. [Contracts](docs/07-contracts.md) — Deploy, `pyde_abi!` macro, dynamic `Contract`, `Value`, codec
 8. [Events](docs/08-events.md) — `LogFilter`, `EventFilter`, cursor pagination, WS subscriptions
-9. [Errors](docs/09-errors.md) — `SdkError`, `ErrorCode`, revert-reason decoding, dapp UX
+9. [Errors](docs/09-errors.md) — `SdkError`, `ErrorCode`, revert-reason decoding, structured `RevertCategory`, dapp UX
 10. [Multisig](docs/10-multisig.md) — Treasury bundle, `canonical_msg`, `sign_action`, 2-of-3 walkthrough
 11. [Examples](docs/11-examples.md) — Per-example walkthrough with expected output
 12. [Compatibility](docs/12-compatibility.md) — Wire format guarantees, ABI versions, MSRV, TS SDK delta
@@ -91,7 +91,7 @@ Step-by-step explanation: [docs/02-quickstart.md](docs/02-quickstart.md).
 | [`tx`](src/tx) | `TxBuilder` + `tx_hash` (Poseidon2 over the canonical pre-image, signature excluded) + Borsh `encode` / `decode` |
 | [`signer`](src/signer) | `Signer` trait + `LocalSigner` (FALCON-512 keypair via `pyde-crypto`) |
 | [`wallet`](src/wallet) | `Wallet` (implements `Signer`) + `Keystore` (Argon2id + AES-256-GCM, SDK-specific format) |
-| [`provider`](src/provider) | `Provider` trait (26 RPC methods) + `HttpProvider` (reqwest) + `PendingTx` |
+| [`provider`](src/provider) | `Provider` trait (28 RPC methods) + `HttpProvider` (reqwest) + `PendingTx` |
 | [`ws`](src/ws) | `WsProvider` + `Subscription<Event>` (v1 ships `subscribe_logs`; other kinds queued behind the engine) |
 | [`abi`](src/abi) | `extract_abi(wasm)` — pulls the `pyde.abi` custom section from a contract's bytecode |
 | [`contract`](src/contract) | Dynamic `Contract` runtime + `pyde_abi!` proc-macro for compile-time typed wrappers |

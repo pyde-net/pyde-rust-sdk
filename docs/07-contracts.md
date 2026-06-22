@@ -289,7 +289,7 @@ custom section.
 | | |
 |---|---|
 | Signature | `async fn load(name: &str, provider: Arc<dyn Provider>) -> Result<Contract, SdkError>` |
-| Errors | `SdkError::NotFound` if the name doesn't resolve; `SdkError::InvalidArgument` if the WASM has no `pyde.abi` section. |
+| Errors | `SdkError::InvalidArgument` if the name doesn't resolve (`"contract \"<name>\" is not registered"`); `SdkError::InvalidArgument` if the loaded WASM has no `pyde.abi` section. |
 
 ### `Contract::load_at(address, provider)`
 
