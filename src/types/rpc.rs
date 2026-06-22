@@ -35,6 +35,10 @@ pub enum ReceiptStatus {
 /// releases. Unknown categories deserialise as
 /// [`RevertCategory::Other`] for forward compatibility; check
 /// [`Self::is_known`] if you need to detect the unknown case.
+///
+/// Because [`Self::Other`] is the forward-compat catch-all, callers
+/// exhaustively matching on this enum must include a wildcard arm;
+/// use [`Self::is_known`] to detect the unknown-variant case.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RevertCategory {
     /// Engine-side pre-execution checks: nonce window, signature,
@@ -73,10 +77,10 @@ impl RevertCategory {
 /// Pairs a category (for UI badging / control flow) with the engine's
 /// human-readable message.
 ///
-/// Populated on every `status: "reverted"` receipt produced by an
-/// engine post-#349. Pre-#349 receipts omit the field — the SDK
-/// deserialises that as `None` via `#[serde(default)]`, callers
-/// fall back to [`crate::error::SdkError::revert_reason`] which
+/// Populated on every `status: "reverted"` receipt the node emits
+/// when its engine carries the structured reason. Receipts that
+/// omit the field deserialise as `None` via `#[serde(default)]`;
+/// callers fall back to [`crate::error::SdkError::revert_reason`] which
 /// decodes from `return_data`.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RevertReason {
@@ -116,10 +120,10 @@ pub struct Receipt {
     /// Events emitted during execution (empty for reverts).
     #[serde(default)]
     pub events: Vec<Event>,
-    /// Structured revert reason (engine #349+). Populated when
-    /// `status == Reverted`; omitted on success / out-of-gas
-    /// receipts. Pre-#349 engines don't emit this — the field
-    /// defaults to `None`, callers should fall back to
+    /// Structured revert reason. Populated when `status == Reverted`
+    /// and the node emits a structured reason; omitted on success /
+    /// out-of-gas receipts and on nodes that don't emit it (defaults
+    /// to `None`). When `None`, fall back to
     /// [`crate::SdkError::revert_reason`] which decodes from
     /// `return_data` bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,8 +162,7 @@ impl Receipt {
     }
 
     /// `true` iff this receipt has `category == EngineValidation`
-    /// in its structured revert reason. Returns `false` for
-    /// pre-#349 engines that don't populate the field.
+    /// in its structured revert reason. Returns `false` when the receipt has no structured revert reason (whether because the tx didn't revert or the node didn't supply one).
     #[must_use]
     pub fn is_engine_validation_revert(&self) -> bool {
         matches!(
@@ -169,7 +172,7 @@ impl Receipt {
     }
 
     /// `true` iff this receipt has `category == Contract`. Returns
-    /// `false` for pre-#349 engines.
+    /// `false` when the receipt has no structured revert reason.
     #[must_use]
     pub fn is_contract_revert(&self) -> bool {
         matches!(
@@ -179,7 +182,7 @@ impl Receipt {
     }
 
     /// `true` iff this receipt has `category == Vm`. Returns
-    /// `false` for pre-#349 engines.
+    /// `false` when the receipt has no structured revert reason.
     #[must_use]
     pub fn is_vm_trap(&self) -> bool {
         matches!(

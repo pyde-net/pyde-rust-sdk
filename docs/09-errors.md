@@ -19,6 +19,7 @@ to dapp-facing messages.
 - [9.6 Dapp UX pattern — map codes to messages](#96-dapp-ux-pattern--map-codes-to-messages)
 - [9.7 RPC error envelope codes](#97-rpc-error-envelope-codes)
 - [9.8 Debugging tips](#98-debugging-tips)
+- [9.9 Structured revert categories](#99-structured-revert-categories)
 
 ---
 
@@ -26,28 +27,35 @@ to dapp-facing messages.
 
 ```rust,ignore
 pub enum SdkError {
+    Rpc(String),
+    Connection(String),
+    Signing(String),
+    Timeout(String),
+    Reverted {
+        gas_used: u64,
+        data: Vec<u8>,
+        reason: Option<RevertReason>,
+    },
+    InsufficientBalance { required: u128, available: u128 },
+    HostFn { code: ErrorCode, message: String },
     InvalidAddress(String),
     InvalidArgument(String),
-    Signing(String),
-    Rpc { code: i32, message: String, data: Option<Value> },
-    Transport(String),
-    Reverted { reason: Option<String>, raw: Option<Vec<u8>> },
-    HostFn { code: ErrorCode, message: String },
-    NotFound,
+    InvalidResponse(String),
     Other(String),
 }
 ```
 
 | Variant | When you see it | Typical handling |
 |---|---|---|
+| `Rpc` | Server returned a JSON-RPC error envelope or non-2xx HTTP status | Parse the message for known codes (e.g., `-32603` = internal). |
+| `Connection` | Network-level failure — connect refused, TLS handshake, DNS | Retried automatically by `HttpTransport` (3× default). |
+| `Signing` | FALCON keygen / sign failed, or pubkey doesn't pair with secret | Check the signer / HSM is responding. |
+| `Timeout` | A bounded wait elapsed (e.g., `wait_for_receipt`) | Increase the timeout or check chain liveness. |
+| `Reverted` | Contract execution reverted; carries `gas_used`, `data` bytes, and a structured `reason` when the engine emits it | See §9.2 (raw bytes) and §9.9 (structured category). |
+| `InsufficientBalance` | Sender can't cover `value + gas_limit × base_fee` | Surface the `required` / `available` numbers; suggest a top-up. |
+| `HostFn` | Host fn returned a structured `ErrorCode` (HOST_FN_ABI §4) | See §9.3. |
 | `InvalidAddress` | Bad hex address — wrong length, non-hex chars | Validate input on the way in. |
 | `InvalidArgument` | Bad input to a SDK fn — unknown tx_type, malformed borsh, `from` not set on `TxBuilder` | Usually a programming bug; surface to dev logs. |
-| `Signing` | FALCON keygen / sign failed, or pubkey doesn't pair with secret | Check the signer / HSM is responding. |
-| `Rpc` | Server returned a JSON-RPC error envelope (`{code, message, data}`) | Parse `code` for known cases (e.g., `-32603` = internal). |
-| `Connection` | Network-level failure — connect refused, TLS handshake, timeout | Retried automatically by `HttpTransport` (3× default). |
-| `Reverted` | Contract execution reverted; reason / raw bytes carried if available | See §9.2. |
-| `HostFn` | Host fn returned a structured `ErrorCode` (HOST_FN_ABI §4) | See §9.3. |
-| `NotFound` | Resource doesn't exist (tx, receipt, name, etc.) | Often a normal not-yet-seen state; check + retry. |
 | `InvalidResponse` | RPC server sent a malformed envelope | Server-side bug — log & retry. |
 | `Other` | Catch-all for things that don't fit (borsh errors, JSON parse, etc.) | Inspect the inner message. |
 
@@ -56,26 +64,29 @@ pub enum SdkError {
 ## 9.2 Inspecting revert reasons
 
 When a contract reverts, the SDK surfaces `SdkError::Reverted`
-with:
+with three fields:
 
-- `reason: Option<String>` — best-effort decoded human-readable string.
-- `raw: Option<Vec<u8>>` — the raw bytes the contract passed to
-  `pyde.revert`.
+- `gas_used: u64` — gas charged before the revert (always > 0).
+- `data: Vec<u8>` — raw bytes the contract passed to `pyde.revert`.
+- `reason: Option<RevertReason>` — engine-emitted structured
+  reason when the engine carries it. See §9.9 for the category/message
+  shape; this section covers the bytes-only fallback for older
+  nodes.
+
+For control-flow decisions branching on *who* reverted, jump to
+§9.9. For pulling a human-readable string out of the bytes —
+the existing `SdkError::revert_reason()` helper still works,
+regardless of whether the structured field is present:
 
 ```rust,no_run
-use pyde_rust_sdk::error::SdkError;
+use pyde_rust_sdk::SdkError;
 # fn handle(err: SdkError) {
-match err {
-    SdkError::Reverted { reason: Some(msg), .. } => {
-        println!("contract said: {msg}");
-    }
-    SdkError::Reverted { raw: Some(bytes), .. } => {
-        println!("contract reverted with {} raw bytes", bytes.len());
-    }
-    SdkError::Reverted { .. } => {
-        println!("contract reverted with no reason");
-    }
-    other => println!("other error: {other}"),
+if let Some(msg) = err.revert_reason() {
+    println!("contract said: {msg}");
+} else if err.is_revert() {
+    println!("contract reverted with no decodable payload");
+} else {
+    println!("other error: {err}");
 }
 # }
 ```
@@ -256,7 +267,7 @@ fn user_message(err: &SdkError) -> String {
         };
     }
     if let SdkError::Reverted { reason: Some(r), .. } = err {
-        return format!("Reverted: {r}");
+        return format!("Reverted [{:?}]: {}", r.category, r.message);
     }
     if let SdkError::Connection(msg) = err {
         return format!("Network problem — please retry. ({msg})");
@@ -272,8 +283,10 @@ against a real reverting Go contract; see [Examples §11](11-examples.md).
 
 ## 9.7 RPC error envelope codes
 
-The chain's JSON-RPC error envelope comes through as
-`SdkError::Rpc { code, message, data }`. Standard JSON-RPC codes:
+The chain's JSON-RPC error envelope is flattened into a single
+string and surfaced as `SdkError::Rpc(String)`. The string starts
+with the numeric code, then `: `, then the server's message
+(e.g. `-32601: Method not found`). Standard JSON-RPC codes:
 
 | Code | Meaning |
 |---|---|
@@ -294,8 +307,10 @@ there for debugging.
 use pyde_rust_sdk::error::SdkError;
 
 # fn handle(err: SdkError) {
-if let SdkError::Rpc { code: -32601, message, .. } = err {
-    println!("RPC method not found: {message}");
+if let SdkError::Rpc(msg) = err {
+    if msg.starts_with("-32601") {
+        println!("RPC method not found: {msg}");
+    }
 }
 # }
 ```
@@ -319,8 +334,11 @@ silent so it doesn't pollute your dapp's stdout. For
 investigating a failed call:
 
 1. **Use `simulate_transaction(&tx)`** before submitting. The
-   simulation result includes the revert reason and gas usage
-   without committing the tx. See [Providers §6.5](06-providers.md#65-simulating).
+   simulation result includes the raw `return_data` bytes and gas
+   usage; decode the revert message via `SdkError::revert_reason`
+   on the bytes (the structured `RevertCategory` field is
+   currently committed-receipt-only — see §9.9). See
+   [Providers §6.5](06-providers.md#65-simulating).
 2. **Check `Receipt.return_data`** on a `Reverted` receipt — the
    raw bytes from `pyde.revert` are there. See [Providers §6.3](06-providers.md#transactions--6-methods).
 3. **Inspect `Tx` borsh** with `tx::encode(&tx)` if you suspect
@@ -331,3 +349,93 @@ investigating a failed call:
    you need per-call request/response dumps.
 5. **Bump retry count** via `RetryConfig` if you suspect transient
    network flakes (see [Providers §6.6](06-providers.md#66-retry-policy)).
+
+---
+
+## 9.9 Structured revert categories
+
+The engine surfaces a structured `revert_reason: { category, message }`
+field on receipts. SDK consumers can branch on `category` to
+distinguish three failure modes that warrant different UX:
+
+| Category | Who rejected the tx | Typical UX |
+|---|---|---|
+| `EngineValidation` | Engine pre-check (nonce / balance / fee / dispatch decode). The tx never reached contract code. | "Couldn't submit — `{message}`" |
+| `Contract` | Contract code called `revert(msg)` explicitly | "Contract rejected: `{message}`" |
+| `Vm` | VM-level abort: wasmtime trap, OOM, executor-side gas exhaustion | "Contract crashed: `{message}` — gas spent: `{gas_used}`" |
+| `Other(s)` | Forward-compat: engine shipped a new variant the SDK doesn't recognise yet. The original wire string is preserved in `s`. | Log the unknown category; fall back to generic "Reverted". |
+
+### From a `Receipt`
+
+```rust,no_run
+use pyde_rust_sdk::types::Receipt;
+
+# fn ui(receipt: Receipt) {
+if receipt.is_engine_validation_revert() {
+    println!("submission rejected: {}",
+             receipt.revert_reason.as_ref().unwrap().message);
+} else if receipt.is_contract_revert() {
+    println!("contract said no: {}",
+             receipt.revert_reason.as_ref().unwrap().message);
+} else if receipt.is_vm_trap() {
+    println!("contract crashed: {} (gas {})",
+             receipt.revert_reason.as_ref().unwrap().message,
+             receipt.gas());
+}
+# }
+```
+
+### From an `SdkError`
+
+Same accessors on `SdkError`:
+
+```rust,no_run
+use pyde_rust_sdk::SdkError;
+
+# fn handle(err: SdkError) {
+if err.is_engine_validation_revert() {
+    /* nonce / balance / fee — fixable by the user */
+} else if err.is_contract_revert() {
+    /* contract said no — show the message */
+} else if err.is_vm_trap() {
+    /* the contract crashed, not a user-fixable thing */
+}
+# }
+```
+
+### One-liner: receipt → error
+
+`SdkError::from_receipt(&receipt)` maps any non-success receipt
+to the right error variant, preserving the structured reason
+through `Reverted` and synthesising a `Vm` category for
+`OutOfGas`. Returns `None` for `Success`.
+
+```rust,no_run
+use pyde_rust_sdk::{SdkError, types::Receipt};
+
+# async fn submit(p: std::sync::Arc<dyn pyde_rust_sdk::Provider>, hash: pyde_rust_sdk::TxHash) -> Result<(), SdkError> {
+let receipt = p.get_transaction_receipt(&hash).await?
+    .ok_or_else(|| SdkError::Other("no receipt".into()))?;
+if let Some(err) = SdkError::from_receipt(&receipt) {
+    return Err(err);
+}
+/* success */
+# Ok(()) }
+```
+
+### Backward compatibility
+
+Nodes that don't emit the `revert_reason` field round-trip the
+receipt without it. The SDK deserialises that as `None` and the
+category accessors return `false` — callers fall back to §9.2
+(decode the message from `return_data` bytes via
+`SdkError::revert_reason()`). New code should call both: branch
+on category when present, fall back to the bytes-decoded string
+otherwise.
+
+### Anti-pattern: don't pattern-match on `message`
+
+The `message` string is informational. The engine refines wording
+between releases — pattern-matching on substrings will silently
+break. Branch on `category` (machine-stable); display `message`
+to the user.

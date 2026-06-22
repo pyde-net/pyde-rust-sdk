@@ -16,7 +16,7 @@ the first time, then dip in by topic.
 | 6 | [Providers](06-providers.md) | `HttpProvider`, `WsProvider`, every RPC method, `PendingTx`, retry policy |
 | 7 | [Contracts](07-contracts.md) | Deploy, `pyde_abi!` macro, dynamic `Contract`, `Value`, codec functions |
 | 8 | [Events](08-events.md) | `LogFilter`, `EventFilter`, cursor pagination, WS subscriptions |
-| 9 | [Errors](09-errors.md) | `SdkError`, `ErrorCode`, revert-reason decoding, dapp UX |
+| 9 | [Errors](09-errors.md) | `SdkError`, `ErrorCode`, revert-reason decoding, structured `RevertCategory`, dapp UX |
 | 10 | [Multisig](10-multisig.md) | Treasury bundle, `canonical_msg`, `sign_action`, 2-of-3 walkthrough |
 | 11 | [Examples](11-examples.md) | Walkthrough of every `examples/*.rs` file with expected output |
 | 12 | [Compatibility](12-compatibility.md) | Wire format guarantees, ABI version range, MSRV, TS SDK delta |

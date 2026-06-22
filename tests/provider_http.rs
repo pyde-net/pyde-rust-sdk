@@ -913,3 +913,100 @@ async fn get_hard_finality_cert_handles_null() {
         .unwrap()
         .is_none());
 }
+
+// ── RevertCategory / RevertReason serialise round-trips ─────────
+
+#[test]
+fn revert_category_serialises_to_pascal_case() {
+    use pyde_rust_sdk::types::RevertCategory;
+    for (cat, expected) in [
+        (RevertCategory::EngineValidation, "\"EngineValidation\""),
+        (RevertCategory::Contract, "\"Contract\""),
+        (RevertCategory::Vm, "\"Vm\""),
+    ] {
+        let s = serde_json::to_string(&cat).unwrap();
+        assert_eq!(s, expected, "category {cat:?} must serialise as PascalCase");
+    }
+}
+
+#[test]
+fn success_receipt_omits_revert_reason_in_serialised_json() {
+    use pyde_rust_sdk::types::{Receipt, ReceiptStatus};
+    let r = Receipt {
+        tx_hash: format!("0x{}", "ab".repeat(32)),
+        wave_id: "0x5".into(),
+        tx_index: "0x0".into(),
+        status: ReceiptStatus::Success,
+        gas_used: "0x5208".into(),
+        fee_paid: "0x5208".into(),
+        return_data: "0x".into(),
+        events: vec![],
+        revert_reason: None,
+    };
+    let v = serde_json::to_value(&r).unwrap();
+    assert!(
+        v.get("revert_reason").is_none(),
+        "None revert_reason must be omitted, got {v:#}"
+    );
+}
+
+#[test]
+fn reverted_receipt_serialises_revert_reason_with_pascal_case_category() {
+    use pyde_rust_sdk::types::{Receipt, ReceiptStatus, RevertCategory, RevertReason};
+    let r = Receipt {
+        tx_hash: format!("0x{}", "c0".repeat(32)),
+        wave_id: "0x1".into(),
+        tx_index: "0x0".into(),
+        status: ReceiptStatus::Reverted,
+        gas_used: "0x100".into(),
+        fee_paid: "0x100".into(),
+        return_data: "0x".into(),
+        events: vec![],
+        revert_reason: Some(RevertReason {
+            category: RevertCategory::Contract,
+            message: "ERR_FORBIDDEN".into(),
+        }),
+    };
+    let v = serde_json::to_value(&r).unwrap();
+    assert_eq!(v["revert_reason"]["category"], "Contract");
+    assert_eq!(v["revert_reason"]["message"], "ERR_FORBIDDEN");
+    let back: Receipt = serde_json::from_value(v).unwrap();
+    assert!(back.is_contract_revert());
+}
+
+#[test]
+fn revert_category_other_round_trips_as_bare_string() {
+    use pyde_rust_sdk::types::RevertCategory;
+    let cat = RevertCategory::Other("FutureCategoryX".into());
+    let s = serde_json::to_string(&cat).unwrap();
+    assert_eq!(s, "\"FutureCategoryX\"");
+    let back: RevertCategory = serde_json::from_str(&s).unwrap();
+    assert!(matches!(back, RevertCategory::Other(ref x) if x == "FutureCategoryX"));
+}
+
+#[test]
+fn revert_reason_message_preserves_newlines_and_unicode() {
+    use pyde_rust_sdk::types::{RevertCategory, RevertReason};
+    for msg in ["line1\nline2", "emoji rocket", "日本語", ""] {
+        let r = RevertReason {
+            category: RevertCategory::Contract,
+            message: msg.into(),
+        };
+        let s = serde_json::to_string(&r).unwrap();
+        let back: RevertReason = serde_json::from_str(&s).unwrap();
+        assert_eq!(
+            back.message, msg,
+            "message must round-trip losslessly: {msg:?}"
+        );
+    }
+}
+
+#[test]
+fn revert_category_other_empty_string_round_trips() {
+    use pyde_rust_sdk::types::RevertCategory;
+    let cat = RevertCategory::Other(String::new());
+    let s = serde_json::to_string(&cat).unwrap();
+    assert_eq!(s, "\"\"");
+    let back: RevertCategory = serde_json::from_str(&s).unwrap();
+    assert!(matches!(back, RevertCategory::Other(ref x) if x.is_empty()));
+}

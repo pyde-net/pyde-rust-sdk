@@ -17,8 +17,13 @@
 //! - [`account`] — `AccountType`, `AuthKeys`, nonce-window constants
 //! - [`tx_types`] — `Tx`, `TxType`, `FeePayer`, `AccessEntry`,
 //!   `AccessType`, the wire-frozen envelope
-//! - [`rpc`] — JSON-RPC response shapes (`Receipt`, `Log`, `LogFilter`,
-//!   `BlockHeader`, `CallOverrides`, `FeeData`)
+//! - [`rpc`] — JSON-RPC response shapes: `Receipt` / `ReceiptStatus`,
+//!   `RevertReason` / `RevertCategory`, `Event` / `Log` / `LogFilter` /
+//!   `LogPage` / `LogCursor` / `EventFilter`, `WaveHeader` (`BlockHeader`
+//!   alias), `AccountInfo`, `NodeInfo`, `CallRequest` / `CallOverrides`,
+//!   `FeeData` / `RecentWaveSummary`, `SimulationResult` /
+//!   `SimulationReceipt` / `SimulationAccessList` / `SimulationRead` /
+//!   `SimulationReadVersion`, `ThresholdPublicKey`.
 
 pub mod abi;
 pub mod account;

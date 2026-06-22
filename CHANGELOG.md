@@ -7,9 +7,10 @@ pre-1.0 may have breaking changes at any minor bump (see
 [docs/12-compatibility.md](docs/12-compatibility.md#msrv--semver-intent)).
 
 ## [Unreleased]
+> Targeting 0.2.0 (TBD).
 
 ### Added
-- **Two new `Provider` methods** matching engine #333 / #337:
+- **Two new `Provider` methods** for wave-head + fee-data queries:
   - `get_wave_head()` → `pyde_getWave` (no-arg form). Returns the
     latest committed wave in one round-trip; pairs with the
     engine's light-client head query. `None` only on a chain
@@ -18,14 +19,10 @@ pre-1.0 may have breaking changes at any minor bump (see
     suggested-tip snapshot plus the last 10 committed waves'
     gas utilisation (driving a wallet's gas-price slider or
     network-load chart in one round-trip).
-- Reworked `FeeData` struct: dropped the `gas_price` field
-  (was an unused alias for `base_fee`); added `wave_id`,
-  `suggested_tip` (always `0` in v1, future-proof), and
-  `recent_waves: Vec<RecentWaveSummary>`. New
-  `RecentWaveSummary { wave_id, gas_used, gas_limit, utilisation }`
-  type for per-wave entries.
-- **Three new `Provider` methods** matching engine PR-326's RPC
-  catalog additions:
+- New `RecentWaveSummary { wave_id, gas_used, gas_limit, utilisation }`
+  type for per-wave entries in `FeeData.recent_waves`.
+- **Three new `Provider` methods** for encrypted submission,
+  threshold-DKG pubkey, and hard-finality cert:
   - `send_raw_encrypted_transaction(envelope_hex)` →
     `pyde_sendRawEncryptedTransaction`. Submits a borsh-encoded
     `EncryptedTxEnvelope` for the MEV-protected mempool path.
@@ -55,8 +52,7 @@ pre-1.0 may have breaking changes at any minor bump (see
   encrypts a signed Tx via `pyde_crypto::threshold::threshold_encrypt`
   + `.to_wire_bytes()`, wraps in `EncryptedTxEnvelope`, submits,
   and waits for the plaintext receipt under the inner tx hash.
-  Live-verified on `otigen devnet` post engine #334 / #335 /
-  #336 + pyde-crypto-wasm #5: plaintext receipt lands in ~12 waves
+  Live-verified on `otigen devnet`: plaintext receipt lands in ~12 waves
   on the single-validator devnet.
 - `RetryConfig` for `HttpTransport` — exponential backoff with jitter
   on transient failures (connection refused, TCP/TLS errors, HTTP 5xx,
@@ -67,7 +63,7 @@ pre-1.0 may have breaking changes at any minor bump (see
   response body (`"Wait for Ns"`); `HttpTransport` parses it and
   uses it as the next sleep duration (capped at 60 s to bound
   worst-case latency from a hostile server) instead of the default
-  exponential backoff. Before T30, 429 surfaced to the caller
+  exponential backoff. Previously, 429 surfaced to the caller
   immediately and broke any test/dapp doing a burst of RPC calls
   against the default 100-rps engine limiter.
 - Memory-safety pin test (`wallet_drop_wipes_secret`) verifying the
@@ -89,13 +85,13 @@ pre-1.0 may have breaking changes at any minor bump (see
   for every public utility function and every public constant.
 - Per-API expansion across all 12 existing doc chapters: args + returns
   + errors + example code + expected output for every public function.
-- **Structured `revert_reason` plumbing** (engine #349). New types
+- **Structured `revert_reason` plumbing.** New types
   `RevertCategory` (`EngineValidation` / `Contract` / `Vm` /
   `Other(String)` for forward-compat) and `RevertReason
   { category, message }` mirror the engine's `pyde_engine_types`
   wire shape. `Receipt.revert_reason: Option<RevertReason>` is
-  populated when the engine emits the field (post-#349) and
-  `None` for older nodes — backward-compat preserved via
+  populated when the engine emits the field and `None` for nodes
+  that don't — backward-compat preserved via
   `#[serde(default)]`. Three new `Receipt` accessors
   (`is_engine_validation_revert`, `is_contract_revert`,
   `is_vm_trap`) make explorer/wallet badging trivial.
@@ -109,10 +105,15 @@ pre-1.0 may have breaking changes at any minor bump (see
 - **`SdkError::from_receipt(&Receipt) -> Option<Self>`** maps a
   non-success receipt to the right `SdkError` variant.
   `OutOfGas` synthesises a `Vm`-category reason; `Reverted`
-  carries the engine's structured reason through (or `None` for
-  pre-#349 receipts). Drops the boilerplate where dapps were
+  carries the engine's structured reason through (or `None` when
+  the receipt didn't carry one). Drops the boilerplate where dapps were
   re-deriving the error variant from status + return_data
   manually.
+- Test coverage grew from 163 unit / 114 integration in 0.1.0 to
+  170 unit / 139 integration in this release (revert-reason
+  plumbing, FeeData rework, encrypted-tx serialisation,
+  snapshot/manifest, hard-finality cert, threshold-pubkey,
+  retry-policy, structured Receipt accessors).
 - Crates.io metadata: `homepage`, `documentation`, `readme`,
   `keywords` (`blockchain`, `pyde`, `post-quantum`, `falcon`,
   `rpc-client`), `categories` (`cryptography`, `api-bindings`,
@@ -122,18 +123,24 @@ pre-1.0 may have breaking changes at any minor bump (see
   upstream deps shipping to crates.io.
 
 ### Changed
+- **Breaking**: Reworked `FeeData` struct: dropped the `gas_price`
+  field (was an unused alias for `base_fee`); added `wave_id`,
+  `suggested_tip` (always `0` in v1, future-proof), and
+  `recent_waves: Vec<RecentWaveSummary>`.
 - **Breaking**: `SdkError::Reverted` now has a third field —
   `reason: Option<RevertReason>`. Callers using struct-syntax
   pattern matching need to add `reason: _` (or destructure it).
   Constructions need `reason: None` (older code path) or
   `reason: receipt.revert_reason.clone()` (when building from a
   receipt). Idiomatic path is `SdkError::from_receipt(&receipt)`
-  which handles both forks.
-- `Provider::get_nonce` now sends `pyde_getNonce` (the canonical
-  Chapter 17.4 name) instead of `pyde_getTransactionCount`. The
-  engine accepts both — the swap is wire-equivalent for users on
-  any engine ≥ #337; older engines that don't dispatch the alias
-  would error, but those don't exist in the deployed network.
+  which handles both forks. Code that already uses
+  `{ gas_used, data, .. }` (with rest-pattern) is unaffected;
+  only exhaustive struct-pattern matches need the new field.
+- **Breaking (wire)**: `Provider::get_nonce` now sends
+  `pyde_getNonce` instead of `pyde_getTransactionCount`. The
+  deployed engine accepts both, so this is wire-equivalent at the
+  live edge; only callers pinning fixtures by JSON-RPC method
+  name need to update.
 - All docs + examples now point at `otigen devnet` (port `9933`) for
   the local chain runtime. The previous `pyde devnet` (port `8545`)
   references assumed users had cloned `pyde-net/engine`; the new path
@@ -233,4 +240,5 @@ the chain engine.
   events, errors, multisig, examples, compatibility.
 
 [Unreleased]: https://github.com/pyde-net/pyde-rust-sdk/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.1.0

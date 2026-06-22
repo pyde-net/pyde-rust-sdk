@@ -14,6 +14,16 @@
 //! the typed reason (e.g. `ERR_FORBIDDEN`, `ERR_INSUFFICIENT_BALANCE`)
 //! without parsing strings by hand.
 //!
+//! For revert errors, [`SdkError::revert_category`] surfaces the
+//! engine's [`crate::types::RevertCategory`] (`EngineValidation` /
+//! `Contract` / `Vm`) so callers can branch on the *layer* that
+//! rejected the tx without parsing the message. The convenience
+//! predicates [`SdkError::is_engine_validation_revert`],
+//! [`SdkError::is_contract_revert`], and [`SdkError::is_vm_trap`]
+//! cover the common cases. [`SdkError::from_receipt`] converts a
+//! non-success [`crate::types::Receipt`] into the matching
+//! `SdkError` variant in one call.
+//!
 //! [spec]: https://book.pyde.network/companion/HOST_FN_ABI_SPEC#4-error-codes
 
 use thiserror::Error;
@@ -50,9 +60,8 @@ pub enum SdkError {
     /// [`crate::types::ReceiptStatus::Reverted`].
     ///
     /// `reason` carries the engine's structured revert reason
-    /// when available (engine #349+) — `Some` for any
-    /// `status: "reverted"` receipt the SDK constructed from a
-    /// post-#349 node, `None` when the SDK derived the revert
+    /// when available — `Some` for any
+    /// `status: "reverted"` receipt when the engine emits a structured reason, `None` when the SDK derived the revert
     /// from `return_data` alone (older nodes / direct constructions).
     /// Branch on [`Self::revert_category`] for control-flow
     /// decisions; use `reason.message` for display.
@@ -63,8 +72,8 @@ pub enum SdkError {
         /// Return data emitted by `pyde::revert(...)` (UTF-8 if
         /// possible).
         data: Vec<u8>,
-        /// Structured revert reason from the engine (#349+).
-        /// `None` for receipts from older engines — call
+        /// Structured revert reason from the engine when present.
+        /// `None` when the SDK only has the raw `data` bytes — call
         /// [`Self::revert_reason`] to decode from `data`.
         reason: Option<RevertReason>,
     },
@@ -190,15 +199,16 @@ impl SdkError {
         matches!(self, SdkError::Reverted { .. })
     }
 
-    /// Structured revert category from the engine (#349+).
-    /// Returns `None` for non-revert errors or revert errors
-    /// constructed from a pre-#349 receipt that didn't carry a
-    /// structured reason.
+    /// Structured revert category populated by the engine. Returns
+    /// `None` for non-revert errors or revert errors constructed
+    /// from a receipt that didn't carry a structured reason.
     ///
     /// Branch on this — not [`Self::revert_reason`] — for
     /// control flow:
     ///
     /// ```ignore
+    /// use pyde_rust_sdk::types::RevertCategory;
+    ///
     /// match err.revert_category() {
     ///     Some(RevertCategory::EngineValidation) => /* nonce/balance/etc */,
     ///     Some(RevertCategory::Contract)         => /* user's contract said no */,
@@ -377,8 +387,7 @@ fn extract_error_code_from_str(reason: &str) -> Option<ErrorCode> {
 }
 
 /// Format a revert error's display text. Prefers the engine's
-/// structured `reason` (#349+); falls back to decoding
-/// `data` bytes (older engines / direct constructions).
+/// structured `reason` when present; falls back to decoding `data` bytes otherwise.
 fn format_revert(gas_used: &u64, data: &[u8], reason: Option<&RevertReason>) -> String {
     if let Some(r) = reason {
         return format!(
@@ -577,7 +586,7 @@ mod tests {
         assert_eq!(SdkError::Other(String::new()).code(), "OTHER");
     }
 
-    // ── Structured revert_reason wiring (engine #349) ─────────
+    // ── Structured revert_reason wiring ──────────────────────
 
     #[test]
     fn revert_category_accessors_branch_on_category() {
