@@ -55,7 +55,12 @@ pub const MAX_CALLDATA: usize = 64 * 1024;
     Serialize,
     Deserialize,
 )]
+// Borsh uses the explicit u8 discriminant; serde reads the JSON
+// shape the engine emits (`"standard"`, `"deploy"`, …) per the
+// canonical lowercase snake_case convention. The serde rename is
+// disjoint from the borsh path — borsh is byte-tagged, not name-keyed.
 #[borsh(use_discriminant = true)]
+#[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum TxType {
     /// `0x00` — Value transfer or contract call. `to/value/data`
@@ -211,14 +216,17 @@ pub struct Tx {
     /// txs (Multisig*, Emergency*, Stake*, …).
     pub to: Address,
     /// Value attached to the call, in quanta.
+    #[serde(deserialize_with = "crate::types::serde_hex::deserialize_u128_hex_or_int")]
     pub value: u128,
     /// Variant-specific payload — see the `data` interpretation
     /// table in the struct-level docs.
     pub data: Vec<u8>,
     /// Maximum gas the sender authorises.
+    #[serde(deserialize_with = "crate::types::serde_hex::deserialize_u64_hex_or_int")]
     pub gas_limit: Gas,
     /// Sender's nonce. Must be `[base, base + 16)` per the 16-slot
     /// bitmap window (Ch 11 §11.4).
+    #[serde(deserialize_with = "crate::types::serde_hex::deserialize_u64_hex_or_int")]
     pub nonce: u64,
     /// FALCON-512 signature over the tx canonical pre-image. The
     /// signature itself is NOT hashed (would be circular).
@@ -231,9 +239,14 @@ pub struct Tx {
     pub access_list: Vec<AccessEntry>,
     /// Optional inclusion deadline (wave id). After this wave, the
     /// tx is dropped from mempools and its nonce slot frees up.
+    #[serde(
+        default,
+        deserialize_with = "crate::types::serde_hex::deserialize_opt_u64_hex_or_int"
+    )]
     pub deadline: Option<u64>,
     /// Chain identifier — replay protection across chains. `1` =
     /// mainnet, `31337` = devnet (per spec; genesis-configured).
+    #[serde(deserialize_with = "crate::types::serde_hex::deserialize_u64_hex_or_int")]
     pub chain_id: u64,
     /// Variant discriminant — see [`TxType`].
     pub tx_type: TxType,
@@ -481,6 +494,42 @@ mod tests {
         let bytes = borsh::to_vec(&tx).unwrap();
         let decoded: Tx = borsh::from_slice(&bytes).unwrap();
         assert_eq!(tx, decoded);
+    }
+
+    /// Regression for the live `pyde_getTx` decode bug. Engine ships
+    /// numeric fields as `0x`-prefixed lowercase hex strings (spec
+    /// §17.4) and the tx-type tag as lowercase snake_case. Without the
+    /// hex-string deserialisers + `TxType` serde rename, this payload
+    /// fails decode with "invalid type: string `0x7a69`, expected u64"
+    /// at the very first field.
+    #[test]
+    fn tx_json_decodes_engine_wire_shape() {
+        // Engine ships numeric fields as `0x`-prefixed lowercase hex
+        // strings (spec §17.4) and the tx-type tag as lowercase
+        // snake_case; addresses + signature are byte arrays (the
+        // archival `pyde_getTx` convention per the wire-quirks memo).
+        let json = serde_json::json!({
+            "from":        vec![0xAAu8; 32],
+            "to":          vec![0xBBu8; 32],
+            "value":       "0xf4240",
+            "data":        [],
+            "gas_limit":   "0x186a0",
+            "nonce":       "0x4",
+            "signature":   vec![0u8; 666],
+            "fee_payer":   "Sender",
+            "access_list": [],
+            "deadline":    serde_json::Value::Null,
+            "chain_id":    "0x7a69",
+            "tx_type":     "standard",
+        });
+        let decoded: Tx = serde_json::from_value(json).expect("engine wire shape decodes");
+        assert_eq!(decoded.value, 0xf_4240);
+        assert_eq!(decoded.gas_limit, 0x1_86a0);
+        assert_eq!(decoded.nonce, 4);
+        assert_eq!(decoded.chain_id, 0x7a69);
+        assert_eq!(decoded.tx_type, TxType::Standard);
+        assert_eq!(decoded.deadline, None);
+        assert_eq!(decoded.fee_payer, FeePayer::Sender);
     }
 
     #[test]

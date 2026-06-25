@@ -39,7 +39,13 @@ pub enum ReceiptStatus {
 /// Because [`Self::Other`] is the forward-compat catch-all, callers
 /// exhaustively matching on this enum must include a wildcard arm;
 /// use [`Self::is_known`] to detect the unknown-variant case.
+// The wire shape is lowercase snake_case (`"engine_validation"`,
+// `"contract"`, `"vm"`) per the engine's `RevertCategory::category()`
+// discriminant; deserialise into PascalCase variants by renaming.
+// Without the rename every wire string falls through to `Other(...)`
+// and `is_known()`/`is_contract_revert()` etc. all return `false`.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RevertCategory {
     /// Engine-side pre-execution checks: nonce window, signature,
     /// fee payment, balance for `fee + value`, access-list
@@ -694,6 +700,26 @@ mod tests {
     use super::*;
 
     // ── Receipt decoding ────────────────────────────────────────
+
+    /// Regression: engine ships `revert_reason.category` lowercase
+    /// snake_case (`"engine_validation"`, `"contract"`, `"vm"`). Without
+    /// the `#[serde(rename_all = "snake_case")]` rename every variant
+    /// falls through to `Other(...)` and `is_known()` /
+    /// `is_contract_revert()` / etc. return `false`.
+    #[test]
+    fn revert_category_decodes_engine_snake_case() {
+        let v: RevertCategory = serde_json::from_str(r#""engine_validation""#).unwrap();
+        assert_eq!(v, RevertCategory::EngineValidation);
+        assert!(v.is_known());
+        let v: RevertCategory = serde_json::from_str(r#""contract""#).unwrap();
+        assert_eq!(v, RevertCategory::Contract);
+        let v: RevertCategory = serde_json::from_str(r#""vm""#).unwrap();
+        assert_eq!(v, RevertCategory::Vm);
+        // Forward-compat catch-all still works for an unknown category.
+        let v: RevertCategory = serde_json::from_str(r#""future_category""#).unwrap();
+        assert!(!v.is_known());
+        assert!(matches!(v, RevertCategory::Other(ref s) if s == "future_category"));
+    }
 
     #[test]
     fn receipt_decodes_engine_shape() {

@@ -32,6 +32,7 @@ pub mod error_code;
 pub mod falcon;
 pub mod hash;
 pub mod rpc;
+pub(crate) mod serde_hex;
 pub mod state_schema;
 pub mod tx_types;
 
