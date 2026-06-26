@@ -69,13 +69,8 @@ use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::types::{ContractType, ParamType, Tx};
 use pyde_rust_sdk::{abi, Address, PendingTx, Provider, Signer, TxBuilder, Wallet};
 
-/// Devnet pre-fund seed (matches `engine/crates/node/src/devnet/runner.rs::devnet_secret`).
-fn devnet_secret(i: u64) -> [u8; 32] {
-    let mut input = Vec::with_capacity(b"pyde-devnet-v1/".len() + 8);
-    input.extend_from_slice(b"pyde-devnet-v1/");
-    input.extend_from_slice(&i.to_le_bytes());
-    *blake3::hash(&input).as_bytes()
-}
+#[path = "shared/common.rs"]
+mod common;
 
 fn require_env(key: &str) -> anyhow::Result<String> {
     std::env::var(key).map_err(|_| anyhow::anyhow!("missing required env: {key}"))
@@ -201,8 +196,7 @@ async fn view_call<T: borsh::BorshDeserialize>(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let rpc_url = common::rpc_url();
     let erc20_wasm_path = require_env("PYDE_ERC20_WASM")?;
     let erc721_wasm_path = require_env("PYDE_ERC721_WASM")?;
     let marketplace_wasm_path = require_env("PYDE_MARKETPLACE_WASM")?;
@@ -216,9 +210,9 @@ async fn main() -> anyhow::Result<()> {
     anyhow::ensure!(chain_id == 31337, "expected devnet chain_id 31337");
 
     // ── Cast three accounts ───────────────────────────────────
-    let deployer = Wallet::from_seed(&devnet_secret(0))?;
-    let seller = Wallet::from_seed(&devnet_secret(1))?;
-    let buyer = Wallet::from_seed(&devnet_secret(2))?;
+    let deployer = Wallet::from_seed(&common::devnet_secret(0))?;
+    let seller = Wallet::from_seed(&common::devnet_secret(1))?;
+    let buyer = Wallet::from_seed(&common::devnet_secret(2))?;
     println!("cast:");
     println!("  deployer = {}", deployer.address());
     println!("  seller   = {}", seller.address());

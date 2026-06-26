@@ -282,9 +282,10 @@ The returned `Receipt` carries `wave_id`, `tx_index`, `status`,
 ### `Connection refused`
 
 The devnet isn't running, or it's bound to a different address.
-Make sure you started it with `--rpc-listen 127.0.0.1:9933`
-explicitly (without the flag the devnet runs in banner-only mode
-with no RPC server).
+`otigen devnet` picks a random RPC port unless you pass
+`--rpc-listen` explicitly — match the SDK target to whatever URL
+the devnet startup banner advertised, or pin it with
+`--rpc-listen 127.0.0.1:9933` and use that.
 
 The SDK retries transient connection failures automatically by
 default — 3 retries with exponential backoff. If you see
@@ -294,8 +295,8 @@ isn't listening.
 ### `expected 10 PYDE pre-fund; got X`
 
 Old engine binary — the help text + actual default were
-inconsistent in early builds. Newer engines (post-PR #312) ship
-10 PYDE consistently. Rebuild your `otigen` binary.
+inconsistent in early builds. Newer engines ship 10 PYDE
+consistently. Rebuild your `otigen` binary.
 
 ### `InvalidArgument: nonce too low`
 

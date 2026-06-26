@@ -3,7 +3,9 @@
 //! the connection drops.
 //!
 //! Env vars:
-//! - `PYDE_WS_URL` — defaults to `ws://127.0.0.1:9933/ws`.
+//! - `PYDE_WS_URL` — WebSocket endpoint (defaults to
+//!   `ws://127.0.0.1:9933/ws`; `otigen devnet` picks a random port,
+//!   so this almost always needs to be set).
 //! - `PYDE_CONTRACT_ADDRESS` — optional address to scope the
 //!   subscription to a single contract.
 //!
@@ -23,9 +25,12 @@
 use pyde_rust_sdk::types::LogFilter;
 use pyde_rust_sdk::{Address, WsProvider};
 
+#[path = "shared/common.rs"]
+mod common;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let url = std::env::var("PYDE_WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:9933/ws".to_string());
+    let url = common::ws_url();
 
     let provider = WsProvider::connect_ws(&url).await?;
     println!("connected: {url}");

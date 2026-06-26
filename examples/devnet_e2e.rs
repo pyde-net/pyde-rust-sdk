@@ -1,16 +1,18 @@
-//! Live end-to-end smoke test against a `otigen devnet` running on
-//! `http://127.0.0.1:9933`.
+//! Live end-to-end smoke test against an `otigen devnet`.
 //!
-//! Run the devnet first:
+//! Run the devnet first. The example reads `PYDE_RPC_URL` (and
+//! falls back to `http://127.0.0.1:9933` with a warning, since
+//! `otigen devnet` picks a random port by default):
 //!
 //! ```sh
-//! otigen devnet --rpc-listen 127.0.0.1:9933 --prefund-count 5
+//! otigen devnet --prefund-count 5
 //! ```
 //!
-//! Then in another terminal:
+//! Then in another terminal, point the example at the RPC URL the
+//! devnet advertised:
 //!
 //! ```sh
-//! cargo run --example devnet_e2e
+//! PYDE_RPC_URL=http://127.0.0.1:<port> cargo run --example devnet_e2e
 //! ```
 //!
 //! Exercises every SDK layer end-to-end against a live node:
@@ -40,19 +42,12 @@ use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::util::{format_quanta, parse_quanta};
 use pyde_rust_sdk::{abi, Address, PendingTx, Provider, Signer, TxBuilder, Wallet};
 
-/// The devnet's canonical pre-fund seed scheme — matches
-/// `engine/crates/node/src/devnet/runner.rs::devnet_secret`.
-fn devnet_secret(i: u64) -> [u8; 32] {
-    let mut input = Vec::with_capacity(b"pyde-devnet-v1/".len() + 8);
-    input.extend_from_slice(b"pyde-devnet-v1/");
-    input.extend_from_slice(&i.to_le_bytes());
-    *blake3::hash(&input).as_bytes()
-}
+#[path = "shared/common.rs"]
+mod common;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let rpc_url = common::rpc_url();
     let transport = HttpTransport::new(rpc_url.clone())?;
     let provider = Arc::new(RootProvider::new(transport));
     let dyn_provider: Arc<dyn Provider> = provider.clone();
@@ -66,8 +61,8 @@ async fn main() -> anyhow::Result<()> {
     anyhow::ensure!(chain_id == 31337, "expected devnet chain_id 31337");
 
     // ── Reproduce devnet-0 + devnet-1 ─────────────────────────
-    let seed_0 = devnet_secret(0);
-    let seed_1 = devnet_secret(1);
+    let seed_0 = common::devnet_secret(0);
+    let seed_1 = common::devnet_secret(1);
     let sender = Wallet::from_seed(&seed_0)?;
     let recipient_existing = Wallet::from_seed(&seed_1)?;
     println!("\n== devnet-0 reproduced ==");

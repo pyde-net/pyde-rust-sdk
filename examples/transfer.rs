@@ -1,9 +1,14 @@
 //! Sign and submit a PYDE transfer via the HTTP provider.
 //!
-//! Set the `PYDE_RPC_URL` env var to the node's JSON-RPC endpoint
-//! (defaults to `http://127.0.0.1:9933`). Optionally set
-//! `PYDE_RECIPIENT` to override the recipient address (defaults to
-//! all-zeros for a self-burn).
+//! Environment variables:
+//! - `PYDE_RPC_URL` — JSON-RPC endpoint (defaults to
+//!   `http://127.0.0.1:9933`; `otigen devnet` picks a random port,
+//!   so this almost always needs to be set).
+//! - `PYDE_SENDER_SEED` — 32-byte hex seed for the sender wallet.
+//!   When unset, the example reproduces `devnet-0`, which `otigen
+//!   devnet` pre-funds by default.
+//! - `PYDE_RECIPIENT` — recipient address (defaults to all-zeros
+//!   for a self-burn).
 //!
 //! Run with:
 //!
@@ -24,17 +29,19 @@ use std::time::Duration;
 
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::util::{format_quanta, parse_quanta};
-use pyde_rust_sdk::{Address, PendingTx, Provider, Signer, TxBuilder, Wallet};
+use pyde_rust_sdk::{Address, PendingTx, Provider, Signer, TxBuilder};
+
+#[path = "shared/common.rs"]
+mod common;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let rpc_url = common::rpc_url();
     let transport = HttpTransport::new(rpc_url.clone())?;
     let provider = Arc::new(RootProvider::new(transport));
     println!("connected: {rpc_url}");
 
-    let wallet = Wallet::generate()?;
+    let wallet = common::seeded_wallet()?;
     println!("sender: {}", wallet.address());
 
     // Recipient defaults to zero — replace via PYDE_RECIPIENT.

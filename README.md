@@ -55,7 +55,11 @@ use pyde_rust_sdk::{Address, Provider, Signer, TxBuilder, Wallet};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let transport = HttpTransport::new("http://127.0.0.1:9933")?;
+    // `otigen devnet` picks a random RPC port. Set PYDE_RPC_URL to
+    // its advertised URL, or substitute it directly here.
+    let url = std::env::var("PYDE_RPC_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let transport = HttpTransport::new(&url)?;
     let provider = Arc::new(RootProvider::new(transport));
 
     let wallet = Wallet::generate()?;
@@ -125,13 +129,19 @@ cargo run --example keystore
 cargo run --example multisig_treasury
 ```
 
-Network examples take `PYDE_RPC_URL` (and friends):
+Network examples take `PYDE_RPC_URL` (and friends). `otigen devnet`
+picks a random RPC port each time it starts, so set the env var to
+whatever URL the devnet logs on launch — for example:
 
 ```sh
-PYDE_RPC_URL=http://127.0.0.1:9933 cargo run --example transfer
-PYDE_RPC_URL=http://127.0.0.1:9933 PYDE_CONTRACT_NAME=counter cargo run --example contract_dynamic
-PYDE_WS_URL=ws://127.0.0.1:9933/ws cargo run --example subscribe_logs
+PYDE_RPC_URL=http://127.0.0.1:<port> cargo run --example transfer
+PYDE_RPC_URL=http://127.0.0.1:<port> PYDE_CONTRACT_NAME=counter cargo run --example contract_dynamic
+PYDE_WS_URL=ws://127.0.0.1:<port>/ws cargo run --example subscribe_logs
 ```
+
+`examples/transfer.rs` defaults to the prefunded `devnet-0` account.
+Set `PYDE_SENDER_SEED=<32-byte hex>` to send from a different
+wallet.
 
 ## Compatibility
 

@@ -17,11 +17,13 @@
 //!    publishes when the inner Tx executes.
 //!
 //! On a single-validator devnet the ceremony runs with `committee=1,
-//! threshold=1`; the lone validator self-inserts its local share
-//! (engine #334) and the plaintext receipt lands within a few waves.
+//! threshold=1`; the lone validator self-inserts its local share and
+//! the plaintext receipt lands within a few waves.
 //!
-//! Requires a Pyde devnet at `PYDE_RPC_URL` (default
-//! `http://127.0.0.1:9933`).
+//! Env vars:
+//! - `PYDE_RPC_URL` — JSON-RPC endpoint (defaults to
+//!   `http://127.0.0.1:9933`; `otigen devnet` picks a random port,
+//!   so this almost always needs to be set).
 //!
 //! Run:
 //!
@@ -44,17 +46,12 @@ use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::types::EncryptedTxEnvelope;
 use pyde_rust_sdk::{Address, Provider, Signer, TxBuilder, Wallet};
 
-/// Devnet's canonical pre-funded seed: `blake3("pyde-devnet-v1/" || u64_le(i))`.
-fn devnet_seed(i: u64) -> [u8; 32] {
-    let mut input = Vec::with_capacity(b"pyde-devnet-v1/".len() + 8);
-    input.extend_from_slice(b"pyde-devnet-v1/");
-    input.extend_from_slice(&i.to_le_bytes());
-    *blake3::hash(&input).as_bytes()
-}
+#[path = "shared/common.rs"]
+mod common;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let url = std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let url = common::rpc_url();
     let provider = Arc::new(RootProvider::new(HttpTransport::new(&url)?));
     println!("connected: {url}");
 
@@ -67,11 +64,12 @@ async fn main() -> anyhow::Result<()> {
         "threshold pubkey: epoch={} scheme={}",
         tpk_record.epoch, tpk_record.scheme
     );
-    if tpk_record.scheme != "kyber-768-goldilocks" {
+    if !tpk_record.is_real() {
         eprintln!(
-            "warning: scheme is {:?}; encrypted submits expect 'kyber-768-goldilocks'. \
-             The chain may be running on v1 mock-DKG; plaintext receipt \
-             will not land until real-crypto ships.",
+            "warning: scheme is {:?}; encrypted submits need real Kyber crypto \
+             (`kyber-768` or `kyber-768-goldilocks`). The chain is on v1 \
+             mock-DKG; the plaintext receipt will not land until real crypto \
+             ships.",
             tpk_record.scheme
         );
     }
@@ -80,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("ThresholdPublicKey::from_bytes failed"))?;
 
     // 2. Build + sign a plaintext transfer from devnet-0 to a sink.
-    let wallet = Wallet::from_seed(&devnet_seed(0))?;
+    let wallet = Wallet::from_seed(&common::devnet_secret(0))?;
     let nonce = provider.get_nonce(&wallet.address()).await?;
     let chain_id = provider.chain_id().await?;
     let recipient = Address([0xCEu8; 32]);
