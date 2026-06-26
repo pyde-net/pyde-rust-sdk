@@ -113,7 +113,9 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Submission (commented — needs the live chain's treasury set) ──
     //
-    // let transport = HttpTransport::new("http://127.0.0.1:9933")?;
+    // let url = std::env::var("PYDE_RPC_URL")
+    //     .unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    // let transport = HttpTransport::new(&url)?;
     // let provider = Arc::new(RootProvider::new(transport));
     // let pending = provider.send_transaction(&tx).await?;
     // let receipt = pending.wait_for_receipt().await?;

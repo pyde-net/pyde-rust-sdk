@@ -42,13 +42,16 @@ Environment variables most live examples consume:
 
 | Var | Default | What |
 |---|---|---|
-| `PYDE_RPC_URL` | `http://127.0.0.1:9933` | HTTP RPC endpoint. |
-| `PYDE_WS_URL` | `ws://127.0.0.1:9933/ws` | WebSocket endpoint. |
+| `PYDE_RPC_URL` | `http://127.0.0.1:9933` | HTTP RPC endpoint. `otigen devnet` picks a random port unless you pass `--rpc-listen`, so set this to whatever the devnet advertised at launch. |
+| `PYDE_WS_URL` | `ws://127.0.0.1:9933/ws` | WebSocket endpoint. Same caveat as `PYDE_RPC_URL`. |
+| `PYDE_SENDER_SEED` | `devnet-0` seed | 32-byte hex seed for the sender wallet in `transfer.rs`. Defaults to the prefunded `devnet-0` account. |
 | `PYDE_RECIPIENT` | (per-example) | Override the default recipient address. |
 | `PYDE_CONTRACT_NAME` | (per-example) | Override the default contract name. |
 | `PYDE_CONTRACT_WASM` | (none) | Optional — point a deploy-example at a custom WASM file. |
 
-Start a devnet first (one terminal) and run examples in another:
+Start a devnet first (one terminal) and run examples in another.
+Pin the RPC port if you want the examples to work without setting
+`PYDE_RPC_URL`:
 
 ```sh
 otigen devnet --rpc-listen 127.0.0.1:9933 --prefund-count 10

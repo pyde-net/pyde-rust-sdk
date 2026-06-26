@@ -25,7 +25,11 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     let transport = HttpTransport::new("http://127.0.0.1:9933")?;
+//!     // `otigen devnet` picks a random RPC port — set PYDE_RPC_URL
+//!     // to its advertised URL, or substitute the URL directly.
+//!     let url = std::env::var("PYDE_RPC_URL")
+//!         .unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+//!     let transport = HttpTransport::new(&url)?;
 //!     let provider = Arc::new(RootProvider::new(transport));
 //!     let wallet = Wallet::generate()?;
 //!     let recipient = Address::from_hex("0xaa…")?;

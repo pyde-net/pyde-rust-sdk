@@ -2,7 +2,9 @@
 //! time, then call its view function via the HTTP provider.
 //!
 //! Env vars:
-//! - `PYDE_RPC_URL` — defaults to `http://127.0.0.1:9933`.
+//! - `PYDE_RPC_URL` — JSON-RPC endpoint (defaults to
+//!   `http://127.0.0.1:9933`; `otigen devnet` picks a random port,
+//!   so this almost always needs to be set).
 //! - `PYDE_COUNTER_ADDRESS` — deployed Counter contract address
 //!   (hex, with or without `0x` prefix).
 //!
@@ -29,10 +31,12 @@ use pyde_rust_sdk::{Address, Provider};
 // their contract's exported ABI JSON.
 pyde_rust_sdk::pyde_abi!(Counter, "tests/fixtures/counter_abi.json");
 
+#[path = "shared/common.rs"]
+mod common;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let rpc_url = common::rpc_url();
     let address = match std::env::var("PYDE_COUNTER_ADDRESS") {
         Ok(s) => Address::from_hex(&s)?,
         Err(_) => {

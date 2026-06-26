@@ -56,12 +56,8 @@ use pyde_rust_sdk::{
     Signer, TxBuilder, Wallet,
 };
 
-fn devnet_secret(i: u64) -> [u8; 32] {
-    let mut input = Vec::with_capacity(b"pyde-devnet-v1/".len() + 8);
-    input.extend_from_slice(b"pyde-devnet-v1/");
-    input.extend_from_slice(&i.to_le_bytes());
-    *blake3::hash(&input).as_bytes()
-}
+#[path = "shared/common.rs"]
+mod common;
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -200,8 +196,7 @@ fn precise_user_message(err: &SdkError) -> String {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let rpc_url =
-        std::env::var("PYDE_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9933".to_string());
+    let rpc_url = common::rpc_url();
     let wasm_path = std::env::var("PYDE_ACCESS_GUARD_WASM").map_err(|_| {
         anyhow::anyhow!(
             "missing PYDE_ACCESS_GUARD_WASM — build the contract first: \
@@ -214,8 +209,8 @@ async fn main() -> anyhow::Result<()> {
     println!("connected: {rpc_url}");
 
     let chain_id = provider.chain_id().await?;
-    let deployer = Wallet::from_seed(&devnet_secret(0))?;
-    let stranger = Wallet::from_seed(&devnet_secret(1))?;
+    let deployer = Wallet::from_seed(&common::devnet_secret(0))?;
+    let stranger = Wallet::from_seed(&common::devnet_secret(1))?;
     println!("deployer (admin) = {}", deployer.address());
     println!("stranger         = {}", stranger.address());
 

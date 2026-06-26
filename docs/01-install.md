@@ -162,6 +162,12 @@ otigen 0.1.0
 otigen devnet --rpc-listen 127.0.0.1:9933
 ```
 
+`otigen devnet` picks a random RPC port when `--rpc-listen` is
+omitted; pin it to `9933` (as above) if you want the examples and
+docs to work out of the box. Otherwise, watch the startup banner
+for the URL the devnet advertised and pass it to the SDK via
+`PYDE_RPC_URL`.
+
 **Expected output (truncated):**
 
 ```
@@ -321,7 +327,8 @@ trim your dependency tree.
 Check:
 
 1. The devnet was started with `--rpc-listen 127.0.0.1:9933`
-   (without that flag it runs in banner-only mode with no RPC).
+   (without that flag, `otigen devnet` picks a random RPC port —
+   read the startup banner for the URL it actually bound to).
 2. You're connecting to the same address — `http://127.0.0.1:9933`
    matches `127.0.0.1:9933`; `localhost:9933` may resolve to
    `[::1]:9933` (IPv6) and fail if the listener is IPv4-only.
