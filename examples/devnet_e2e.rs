@@ -81,10 +81,12 @@ async fn main() -> anyhow::Result<()> {
     let bal_recipient_pyde = format_quanta(bal_recipient);
     println!("balance: {bal_sender_pyde} PYDE  ({bal_sender} quanta)");
     // Devnet ships a 10-PYDE pre-fund per account by default
-    // (10,000,000,000 quanta with PYDE_DECIMALS = 9).
+    // (10,000,000,000 quanta with PYDE_DECIMALS = 9). Use >= so
+    // re-runs do not trip the check once a prior tx has reduced
+    // the balance.
     anyhow::ensure!(
-        bal_sender == 10_000_000_000,
-        "expected 10 PYDE pre-fund; got {bal_sender_pyde}"
+        bal_sender >= 1_000_000_000,
+        "sender balance below 1 PYDE floor; got {bal_sender_pyde}"
     );
     println!("devnet-1 balance: {bal_recipient_pyde} PYDE");
 

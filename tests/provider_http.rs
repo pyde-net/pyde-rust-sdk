@@ -262,7 +262,7 @@ async fn receipt_decodes_structured_engine_validation_revert_reason() {
             "return_data": "0x",
             "events": [],
             "revert_reason": {
-                "category": "EngineValidation",
+                "category": "engine_validation",
                 "message": "nonce out of window: provided=17, window_start=18"
             }
         })))
@@ -294,7 +294,7 @@ async fn receipt_decodes_structured_contract_revert_reason() {
             "wave_id": "0x1", "tx_index": "0x0",
             "status": "reverted", "gas_used": "0x100",
             "fee_paid": "0x100", "return_data": "0x", "events": [],
-            "revert_reason": { "category": "Contract", "message": "ERR_FORBIDDEN" }
+            "revert_reason": { "category": "contract", "message": "ERR_FORBIDDEN" }
         })))
         .mount(&server)
         .await;
@@ -320,7 +320,7 @@ async fn receipt_decodes_structured_vm_revert_reason() {
             "wave_id": "0x1", "tx_index": "0x0",
             "status": "reverted", "gas_used": "0x100",
             "fee_paid": "0x100", "return_data": "0x", "events": [],
-            "revert_reason": { "category": "Vm", "message": "Trap(MemoryOutOfBounds)" }
+            "revert_reason": { "category": "vm", "message": "Trap(MemoryOutOfBounds)" }
         })))
         .mount(&server)
         .await;
@@ -917,15 +917,15 @@ async fn get_hard_finality_cert_handles_null() {
 // ── RevertCategory / RevertReason serialise round-trips ─────────
 
 #[test]
-fn revert_category_serialises_to_pascal_case() {
+fn revert_category_serialises_to_snake_case() {
     use pyde_rust_sdk::types::RevertCategory;
     for (cat, expected) in [
-        (RevertCategory::EngineValidation, "\"EngineValidation\""),
-        (RevertCategory::Contract, "\"Contract\""),
-        (RevertCategory::Vm, "\"Vm\""),
+        (RevertCategory::EngineValidation, "\"engine_validation\""),
+        (RevertCategory::Contract, "\"contract\""),
+        (RevertCategory::Vm, "\"vm\""),
     ] {
         let s = serde_json::to_string(&cat).unwrap();
-        assert_eq!(s, expected, "category {cat:?} must serialise as PascalCase");
+        assert_eq!(s, expected, "category {cat:?} must serialise as snake_case");
     }
 }
 
@@ -951,7 +951,7 @@ fn success_receipt_omits_revert_reason_in_serialised_json() {
 }
 
 #[test]
-fn reverted_receipt_serialises_revert_reason_with_pascal_case_category() {
+fn reverted_receipt_serialises_revert_reason_with_snake_case_category() {
     use pyde_rust_sdk::types::{Receipt, ReceiptStatus, RevertCategory, RevertReason};
     let r = Receipt {
         tx_hash: format!("0x{}", "c0".repeat(32)),
@@ -968,7 +968,7 @@ fn reverted_receipt_serialises_revert_reason_with_pascal_case_category() {
         }),
     };
     let v = serde_json::to_value(&r).unwrap();
-    assert_eq!(v["revert_reason"]["category"], "Contract");
+    assert_eq!(v["revert_reason"]["category"], "contract");
     assert_eq!(v["revert_reason"]["message"], "ERR_FORBIDDEN");
     let back: Receipt = serde_json::from_value(v).unwrap();
     assert!(back.is_contract_revert());
