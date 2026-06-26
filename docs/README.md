@@ -32,9 +32,7 @@ the first time, then dip in by topic.
   engine. Where this matters, the chapter calls it out and
   points at the engine source.
 - **"Wave"** is what Pyde calls a committed batch of transactions
-  — analogous to an Ethereum block. Both terms appear in docs;
-  the SDK ships `BlockHeader = WaveHeader` as a porting alias
-  but new code should use `WaveHeader`.
+  — analogous to an Ethereum block. Both terms appear in docs.
 - **Quanta** is the smallest PYDE unit. `1 PYDE = 10^9 quanta`
   (`PYDE_DECIMALS = 9`). Internal balances are always `u128`
   quanta; never floats.

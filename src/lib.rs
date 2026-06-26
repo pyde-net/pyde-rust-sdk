@@ -76,11 +76,10 @@ pub use provider::{HttpProvider, HttpTransport, PendingTx, Provider, RootProvide
 pub use signer::{LocalSigner, Signer};
 pub use tx::TxBuilder;
 pub use types::{
-    AccessEntry, AccessType, AccountInfo, AccountType, Address, AuthKeys, BlockHeader,
-    CallOverrides, CallPayload, CallRequest, Event, EventFilter, FalconPubkey, FalconSignature,
-    FeeData, FeePayer, Log, LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus,
-    RecentWaveSummary, RevertCategory, RevertReason, SimulationResult, ThresholdPublicKey, Tx,
-    TxHash, TxType, WaveHeader,
+    AccessEntry, AccessType, AccountInfo, AccountType, Address, AuthKeys, CallOverrides,
+    CallPayload, CallRequest, Event, EventFilter, FalconPubkey, FalconSignature, FeeData, FeePayer,
+    Log, LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, RecentWaveSummary,
+    RevertCategory, RevertReason, SimulationResult, ThresholdPublicKey, Tx, TxHash, TxType,
 };
 pub use wallet::{Keystore, Wallet};
 pub use ws::{Subscription, WsProvider, WsTransport};

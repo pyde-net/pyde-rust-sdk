@@ -667,38 +667,6 @@ pub struct RecentWaveSummary {
 
 // ── Wave header ────────────────────────────────────────────────
 
-/// Header info for a committed wave, returned by `pyde_getWave`.
-///
-/// Field shape is opaque-ish — the engine emits the full
-/// `WaveRecord` Borsh-shaped JSON; advanced callers should
-/// `serde_json::from_value` if they need typed access to nested
-/// fields. v1 surfaces the common header fields for ergonomic use.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WaveHeader {
-    /// Wave id (a.k.a. "block number" in Ethereum vocabulary), hex.
-    #[serde(default)]
-    pub wave_id: Option<String>,
-    /// Wall-clock commit timestamp, hex (seconds since Unix epoch).
-    #[serde(default)]
-    pub timestamp: Option<String>,
-    /// Wave proposer address, hex.
-    #[serde(default)]
-    pub proposer: Option<String>,
-    /// Post-commit JMT state root, hex.
-    #[serde(default)]
-    pub state_root: Option<String>,
-    /// Number of transactions committed in this wave, hex.
-    #[serde(default)]
-    pub tx_count: Option<String>,
-}
-
-/// Ethereum-vocabulary alias for [`WaveHeader`].
-///
-/// Pyde calls a committed batch of transactions a "wave"; if you're
-/// porting code that uses the Ethereum-style `block` terminology,
-/// this alias lets you keep the old name.
-pub type BlockHeader = WaveHeader;
-
 // ── Log alias for backward-compat ──────────────────────────────
 
 /// Ethereum-vocabulary alias for [`Event`].
