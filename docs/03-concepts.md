@@ -259,9 +259,8 @@ overlapping waves rather than a strict linear chain).
 - Time fields on a receipt are `wave_id` + `tx_index_within_wave`.
 - The `Provider` trait exposes `wave_id()` as the canonical
   current-head accessor.
-- `WaveHeader` is the canonical struct; `BlockHeader =
-  WaveHeader` is provided as an Ethereum-vocabulary alias for
-  porting muscle memory.
+- `get_wave_head` returns raw `serde_json::Value` today so the
+  full wave-record shape stays accessible from a single call.
 
 ```rust,no_run
 # use std::sync::Arc;
@@ -276,11 +275,6 @@ println!("chain head: wave {head}");
 ```
 chain head: wave 1234
 ```
-
-### New code
-
-Use `WaveHeader` directly. The `BlockHeader` alias is preserved
-for compatibility but not the recommended API for fresh code.
 
 ---
 

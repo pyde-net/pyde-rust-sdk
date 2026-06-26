@@ -19,11 +19,10 @@
 //!   `AccessType`, the wire-frozen envelope
 //! - [`rpc`] — JSON-RPC response shapes: `Receipt` / `ReceiptStatus`,
 //!   `RevertReason` / `RevertCategory`, `Event` / `Log` / `LogFilter` /
-//!   `LogPage` / `LogCursor` / `EventFilter`, `WaveHeader` (`BlockHeader`
-//!   alias), `AccountInfo`, `NodeInfo`, `CallRequest` / `CallOverrides`,
-//!   `FeeData` / `RecentWaveSummary`, `SimulationResult` /
-//!   `SimulationReceipt` / `SimulationAccessList` / `SimulationRead` /
-//!   `SimulationReadVersion`, `ThresholdPublicKey`.
+//!   `LogPage` / `LogCursor` / `EventFilter`, `AccountInfo`, `NodeInfo`,
+//!   `CallRequest` / `CallOverrides`, `FeeData` / `RecentWaveSummary`,
+//!   `SimulationResult` / `SimulationReceipt` / `SimulationAccessList`
+//!   / `SimulationRead` / `SimulationReadVersion`, `ThresholdPublicKey`.
 
 pub mod abi;
 pub mod account;
@@ -58,10 +57,10 @@ pub use falcon::{
 };
 pub use hash::{Blake3Hash, Poseidon2Hash, TxHash, HASH_LEN};
 pub use rpc::{
-    AccountInfo, BlockHeader, CallOverrides, CallRequest, Event, EventFilter, FeeData, Log,
-    LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, RecentWaveSummary,
-    RevertCategory, RevertReason, SimulationAccessList, SimulationRead, SimulationReadVersion,
-    SimulationReceipt, SimulationResult, ThresholdPublicKey, WaveHeader,
+    AccountInfo, CallOverrides, CallRequest, Event, EventFilter, FeeData, Log, LogCursor,
+    LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, RecentWaveSummary, RevertCategory,
+    RevertReason, SimulationAccessList, SimulationRead, SimulationReadVersion, SimulationReceipt,
+    SimulationResult, ThresholdPublicKey,
 };
 pub use state_schema::{FieldKind, ScalarType, StateField, StateSchema};
 pub use tx_types::{

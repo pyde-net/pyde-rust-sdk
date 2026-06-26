@@ -52,7 +52,7 @@ use crate::error::SdkError;
 use crate::provider::json_rpc::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use crate::provider::transport::Transport;
 use crate::provider::RootProvider;
-use crate::types::{Address, Event, LogFilter, TxHash, WaveHeader};
+use crate::types::{Address, Event, LogFilter, TxHash};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type WsWrite = SplitSink<WsStream, Message>;
@@ -393,11 +393,15 @@ impl WsProvider {
     ///
     /// **v1: not yet supported by engine.** Returns an immediate
     /// error rather than dispatching a doomed request. Will be
-    /// enabled when engine v1.x ships the `"newWaves"` kind.
+    /// enabled when engine v1.x ships the `"newWaves"` kind. The
+    /// frame payload type lands as a typed shape at that point;
+    /// today the stub returns raw [`serde_json::Value`] so callers
+    /// who reach for it do not lock themselves into a placeholder
+    /// type.
     ///
     /// # Errors
     /// Always returns [`SdkError::Other`] on v1.
-    pub async fn subscribe_new_waves(&self) -> Result<Subscription<WaveHeader>, SdkError> {
+    pub async fn subscribe_new_waves(&self) -> Result<Subscription<serde_json::Value>, SdkError> {
         Err(unsupported_subscription("newWaves"))
     }
 
