@@ -301,9 +301,10 @@ impl Receipt {
 /// V1 ships with `MockDkg` — `scheme: "mock"` and a deterministic
 /// `public_key`. Encrypted txs submitted under the mock pubkey
 /// **will sit unprocessed** until real Kyber-768 + threshold-sig
-/// crypto lands. v1 dapps wanting MEV protection should treat
-/// `scheme != "kyber-768"` as "encrypted path not yet ready, fall
-/// back to plaintext."
+/// crypto lands. v1 dapps wanting MEV protection should use
+/// [`ThresholdPublicKey::is_real`] to gate the encrypted path —
+/// it returns `true` for both `"kyber-768"` and the current live
+/// scheme `"kyber-768-goldilocks"`, and `false` for `"mock"`.
 ///
 /// Per epoch — refresh on every encrypted submit (cheap, no
 /// consensus round-trip).
@@ -311,10 +312,25 @@ impl Receipt {
 pub struct ThresholdPublicKey {
     /// DKG epoch this pubkey is valid for, hex string.
     pub epoch: String,
-    /// `"mock"` (v1 default) or `"kyber-768"` (post-real-crypto).
+    /// `"mock"` (v1 boot default), `"kyber-768"`, or
+    /// `"kyber-768-goldilocks"` (current live-engine scheme).
     pub scheme: String,
     /// The pubkey bytes, hex string. Length depends on `scheme`.
     pub public_key: String,
+}
+
+impl ThresholdPublicKey {
+    /// Returns `true` if `scheme` indicates the encrypted-mempool
+    /// path is live (real Kyber-768 crypto), and `false` for the
+    /// `"mock"` boot scheme or any unrecognised value.
+    ///
+    /// Accepts both `"kyber-768"` (spec name) and
+    /// `"kyber-768-goldilocks"` (the current engine emission).
+    /// Prefer this over an inline equality check so callers stay
+    /// resilient to future scheme renames.
+    pub fn is_real(&self) -> bool {
+        matches!(self.scheme.as_str(), "kyber-768" | "kyber-768-goldilocks")
+    }
 }
 
 // ── Event ─────────────────────────────────────────────────────────────
@@ -854,6 +870,40 @@ mod tests {
         assert_eq!(receipt.status, "Success");
         assert_eq!(s.access_list.reads.len(), 1);
         assert_eq!(s.access_list.writes.len(), 1);
+    }
+
+    // ── ThresholdPublicKey ───────────────────────────────────
+
+    #[test]
+    fn threshold_pubkey_is_real_accepts_both_kyber_strings() {
+        let canonical = ThresholdPublicKey {
+            epoch: "0x1".into(),
+            scheme: "kyber-768".into(),
+            public_key: "0xdead".into(),
+        };
+        let live = ThresholdPublicKey {
+            epoch: "0x1".into(),
+            scheme: "kyber-768-goldilocks".into(),
+            public_key: "0xbeef".into(),
+        };
+        assert!(canonical.is_real());
+        assert!(live.is_real());
+    }
+
+    #[test]
+    fn threshold_pubkey_is_real_rejects_mock_and_unknown() {
+        let mock = ThresholdPublicKey {
+            epoch: "0x0".into(),
+            scheme: "mock".into(),
+            public_key: "0x00".into(),
+        };
+        let unknown = ThresholdPublicKey {
+            epoch: "0x0".into(),
+            scheme: "kyber-1024-someday".into(),
+            public_key: "0x00".into(),
+        };
+        assert!(!mock.is_real());
+        assert!(!unknown.is_real());
     }
 
     // ── EventFilter ──────────────────────────────────────────

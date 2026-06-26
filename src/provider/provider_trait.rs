@@ -1,6 +1,6 @@
 //! The [`Provider`] trait + the concrete [`RootProvider`] dispatcher.
 //!
-//! All 26 RPC methods the engine exposes today, plus convenience
+//! All 28 RPC methods the engine exposes today, plus convenience
 //! sugar for typed Borsh payloads and PYDE↔quanta conversion at
 //! the SDK boundary.
 
@@ -135,8 +135,10 @@ pub trait Provider: Send + Sync {
     ///
     /// v1 mock-DKG warning: if [`Self::get_threshold_public_key`]
     /// reports `scheme: "mock"`, submitted envelopes won't be
-    /// processed until real Kyber-768 crypto lands. Treat
-    /// `scheme != "kyber-768"` as "encrypted path unavailable."
+    /// processed until real Kyber-768 crypto lands. Use
+    /// [`ThresholdPublicKey::is_real`] to gate on the encrypted
+    /// path being live — it accepts both `"kyber-768"` and
+    /// `"kyber-768-goldilocks"` (the current live-engine scheme).
     ///
     /// Size limits (engine v1): min 1213 bytes, max 128 KiB.
     ///
@@ -249,8 +251,9 @@ pub trait Provider: Send + Sync {
     /// writes a deterministic mock pubkey (`scheme: "mock"`) so
     /// the encrypted-mempool path is reachable from the first
     /// wave; real Kyber-768 crypto overwrites it at the per-epoch
-    /// combine. Treat `scheme != "kyber-768"` as "encrypted path
-    /// not yet ready, fall back to plaintext."
+    /// combine. Use [`ThresholdPublicKey::is_real`] to detect the
+    /// live path — it returns `true` for both `"kyber-768"` and
+    /// `"kyber-768-goldilocks"`, and `false` for `"mock"`.
     async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError>;
 
     // ── Events ──────────────────────────────────────────────────
