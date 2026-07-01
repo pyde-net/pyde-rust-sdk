@@ -276,6 +276,17 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Utility mode: print the first N pool addresses (for on-chain
+    // state inspection), then exit.
+    if let Ok(cnt) = std::env::var("CHAOS_PRINT_POOL") {
+        let n: u32 = cnt.parse().unwrap_or(5);
+        for i in 0..n {
+            let w = Wallet::from_seed(&account_seed(i))?;
+            println!("{i} {}", w.address());
+        }
+        return Ok(());
+    }
+
     let n_accounts: u32 = env_or("CHAOS_ACCOUNTS", 3000u32);
     let target_tps: f64 = env_or("CHAOS_TARGET_TPS", 200.0);
     let max_tps: f64 = env_or("CHAOS_MAX_TPS", 500.0);
@@ -396,6 +407,11 @@ async fn fetch_tpk(provider: &Arc<RootProvider<HttpTransport>>) -> Option<Thresh
 /// round-robin the RPCs. The operator's nonce is managed locally so
 /// the funding burst can pipeline.
 async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::Result<()> {
+    // CHAOS_SKIP_FUNDING=1 skips the operator-register + funding phases
+    // (for when the pool is already funded from a prior run) and goes
+    // straight to pool RegisterPubkey.
+    let skip_funding = std::env::var("CHAOS_SKIP_FUNDING").map(|v| v == "1").unwrap_or(false);
+    if !skip_funding {
     let op_seed = std::env::var("CHAOS_OPERATOR_SEED")
         .ok()
         .and_then(|h| {
@@ -539,6 +555,7 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
     // Let funding settle before RegisterPubkey (register needs the
     // account to exist + not be nonce-gated behind an unincluded fund).
     tokio::time::sleep(Duration::from_secs(8)).await;
+    } // end !skip_funding
 
     // Phase 2 — RegisterPubkey. Each account's first tx: TxType
     // RegisterPubkey, data = pubkey bytes, empty signature (chain
@@ -548,17 +565,29 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
     for w in &shared.wallets {
         let from = w.address();
         let pubkey = w.pubkey();
-        let prov = shared.provider_rr();
+        // Route RegisterPubkey through a single validator (v0). A
+        // register submitted to a follower is admitted to that node's
+        // local mempool but wasn't reliably reaching the anchor
+        // producer, so auth keys never got installed and the account's
+        // first plaintext transfer was rejected 'sender has no auth
+        // keys'. Pinning to providers[0] fixed installation.
+        let prov = shared.providers[0].clone();
         let cid = shared.chain_id;
         let permit = sem2.clone().acquire_owned().await.unwrap();
         rhandles.push(tokio::spawn(async move {
             let _p = permit;
+            // RegisterPubkey executes gaslessly, but the mempool /
+            // producer reserves gas_limit * base_fee up front. A large
+            // gas_limit on a lightly-funded pool account makes that
+            // reservation exceed the balance, so the producer silently
+            // drops the register (admitted, never included, no receipt,
+            // no auth keys). Keep the reservation small.
             let tx = match TxBuilder::new()
                 .from(from)
                 .to(Address::ZERO)
                 .chain_id(cid)
                 .nonce(0)
-                .gas_limit(200_000)
+                .gas_limit(25_000)
                 .value(0)
                 .tx_type(TxType::RegisterPubkey)
                 .data(pubkey.as_bytes().to_vec())
@@ -801,7 +830,16 @@ async fn submit_one(shared: &Arc<Shared>, kind: Kind, acct_idx: usize) -> bool {
             if wallet.sign_tx(&mut tx).await.is_err() {
                 return false;
             }
-            prov.send_raw_transaction(&tx).await.is_ok()
+            match prov.send_raw_transaction(&tx).await {
+                Ok(_) => true,
+                Err(e) => {
+                    static ONCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                    if ONCE.fetch_add(1, Ordering::Relaxed) < 5 {
+                        eprintln!("chaos: transfer err (nonce {nonce}): {e}");
+                    }
+                    false
+                }
+            }
         }
         Kind::Encrypted => {
             let to = shared.wallets[(nonce as usize + 1) % shared.wallets.len()].address();
