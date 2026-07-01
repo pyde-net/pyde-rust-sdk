@@ -74,6 +74,15 @@ const DEFAULT_RPCS: &str = "http://127.0.0.1:9933,http://127.0.0.1:9934,http://1
 const GAS_TRANSFER: u64 = 21_000;
 const GAS_CALL: u64 = 2_000_000;
 const MAX_IN_FLIGHT: usize = 64;
+/// Minimum spacing between two encrypted submits from the SAME account
+/// (#441). ~1.5s caps per-account encrypted rate to ~0.67/s, below the
+/// threshold-decryption ceremony's per-account completion rate, so an
+/// account's inner nonces never outrun its own decrypt+commit and
+/// out-of-order decryption can't gap-stall it. Aggregate encrypted
+/// throughput scales with account count (3K accounts × 0.67/s), so
+/// this bounds the pathological per-account burst without capping the
+/// lane. Overridable via CHAOS_ENCRYPTED_MIN_MS.
+const ENCRYPTED_MIN_INTERVAL_MS_DEFAULT: u64 = 1500;
 
 /// One kind of transaction the mix can emit. Counters are per-kind
 /// so the NDJSON stream shows the shape of the load, not just a
@@ -109,6 +118,18 @@ struct Shared {
     chain_id: u64,
     /// Per-account next nonce, seeded lazily from `get_nonce`.
     nonces: Mutex<HashMap<Address, u64>>,
+    /// Per-account last encrypted-submit time (#441). The encrypted
+    /// lane has NO submit-time nonce backpressure — the inner nonce is
+    /// inside the threshold-encrypted envelope, so the chain can't shed
+    /// load at the front door the way the plaintext mempool's nonce
+    /// window does. Under a high PER-ACCOUNT encrypted rate that lets
+    /// an account's envelopes decrypt out of nonce order → inner-tx
+    /// gaps → stall (self-DoS; per-account only). We cap per-account
+    /// encrypted submission to below the decryption ceremony's
+    /// throughput so an account never outruns its own decrypt+commit.
+    last_encrypted: Mutex<HashMap<Address, std::time::Instant>>,
+    /// Minimum spacing between per-account encrypted submits (#441).
+    encrypted_min_interval: std::time::Duration,
     /// Current epoch threshold pubkey for the encrypted lane, or
     /// `None` if the lane is disabled / unavailable. Refreshed
     /// periodically to survive epoch rotation.
@@ -168,6 +189,24 @@ impl Shared {
                 *n = nonce;
             }
         }
+    }
+
+    /// Per-account encrypted rate gate (#441). Returns `true` (skip
+    /// this encrypted submit) if `addr` submitted an encrypted tx more
+    /// recently than `ENCRYPTED_MIN_INTERVAL` ago; otherwise records
+    /// `now` and returns `false` (proceed). Caps per-account encrypted
+    /// rate below the decryption ceremony's throughput so an account
+    /// never runs its inner nonces ahead of its own decrypt+commit.
+    fn encrypted_gated(&self, addr: &Address) -> bool {
+        let now = std::time::Instant::now();
+        let mut g = self.last_encrypted.lock().unwrap();
+        if let Some(prev) = g.get(addr) {
+            if now.duration_since(*prev) < self.encrypted_min_interval {
+                return true;
+            }
+        }
+        g.insert(*addr, now);
+        false
     }
 
     fn record(&self, kind: Kind, ok: bool) {
@@ -377,6 +416,11 @@ async fn main() -> anyhow::Result<()> {
         providers,
         chain_id,
         nonces: Mutex::new(HashMap::new()),
+        last_encrypted: Mutex::new(HashMap::new()),
+        encrypted_min_interval: std::time::Duration::from_millis(env_or(
+            "CHAOS_ENCRYPTED_MIN_MS",
+            ENCRYPTED_MIN_INTERVAL_MS_DEFAULT,
+        )),
         tpk: Mutex::new(tpk),
         prediction,
         flashloan_vault,
@@ -890,6 +934,15 @@ async fn submit_one(shared: &Arc<Shared>, kind: Kind, acct_idx: usize) -> bool {
             }
         }
         Kind::Encrypted => {
+            // Per-account encrypted rate gate (#441). If this account
+            // submitted an encrypted tx too recently, skip — the outer
+            // wrapper rolls the unspent nonce back into the pool, so the
+            // account's inner nonces never outrun its own decrypt+commit
+            // (which would gap-stall it — the encrypted lane has no
+            // submit-time nonce backpressure of its own).
+            if shared.encrypted_gated(&from) {
+                return false;
+            }
             let to = shared.wallets[(nonce as usize + 1) % shared.wallets.len()].address();
             let mut tx = match TxBuilder::new()
                 .from(from)
