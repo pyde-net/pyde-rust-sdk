@@ -280,8 +280,9 @@ async fn main() -> anyhow::Result<()> {
     // state inspection), then exit.
     if let Ok(cnt) = std::env::var("CHAOS_PRINT_POOL") {
         let n: u32 = cnt.parse().unwrap_or(5);
+        let off: u32 = env_or("CHAOS_ACCOUNT_OFFSET", 0u32);
         for i in 0..n {
-            let w = Wallet::from_seed(&account_seed(i))?;
+            let w = Wallet::from_seed(&account_seed(off + i))?;
             println!("{i} {}", w.address());
         }
         return Ok(());
@@ -318,11 +319,22 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("chaos: connected, chain_id={chain_id}");
 
     // ── Wallet pool ────────────────────────────────────────────
+    // CHAOS_ACCOUNT_OFFSET shifts the deterministic pool window so N
+    // bootstrap processes can each fund a DISJOINT slice in parallel
+    // (funding fan-out, #436): run bootstrap with
+    // (offset=k*slice, accounts=slice, CHAOS_OPERATOR_SEED=op_k) for
+    // k=0..N, then the load run uses offset=0, accounts=total and
+    // addresses every account. Addresses are account_seed(offset+i),
+    // so the slices align with the full pool by construction.
+    let account_offset: u32 = env_or("CHAOS_ACCOUNT_OFFSET", 0u32);
     let mut wallets = Vec::with_capacity(n_accounts as usize);
     for i in 0..n_accounts {
-        wallets.push(Wallet::from_seed(&account_seed(i))?);
+        wallets.push(Wallet::from_seed(&account_seed(account_offset + i))?);
     }
-    eprintln!("chaos: derived {} wallets", wallets.len());
+    eprintln!(
+        "chaos: derived {} wallets (offset {account_offset})",
+        wallets.len()
+    );
 
     // ── Threshold pubkey (encrypted lane) ──────────────────────
     let tpk = fetch_tpk(&providers[0]).await;
