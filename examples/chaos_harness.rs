@@ -557,67 +557,33 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
     tokio::time::sleep(Duration::from_secs(8)).await;
     } // end !skip_funding
 
-    // Phase 2 — RegisterPubkey. Each account's first tx: TxType
-    // RegisterPubkey, data = pubkey bytes, empty signature (chain
-    // proves ownership via from == Poseidon2(pubkey)).
-    let sem2 = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
+    // Phase 2 — RegisterPubkey, paced + RECEIPT-CONFIRMED.
+    //
+    // "submitted OK" != "committed". Under a burst, a register's tx
+    // body may not propagate from the origin validator to the anchor
+    // producer, so it's drained locally but never becomes canonical —
+    // no receipt, no auth keys, and the account's first transfer is
+    // then rejected 'sender has no auth keys'. So we (a) submit with
+    // bounded concurrency well inside the mempool nonce window + the
+    // per-sender rate limit, routed through v0 (providers[0]), and
+    // (b) poll each register's receipt to Success before counting it,
+    // resubmitting once on receipt timeout. This is both the interim
+    // unblock (trickle lets single-origin gossip keep up) and the
+    // permanent correctness gate before the load loop.
+    let reg_conc: usize = env_or("CHAOS_REGISTER_CONCURRENCY", 12usize);
+    let confirm = std::env::var("CHAOS_REGISTER_CONFIRM").map(|v| v != "0").unwrap_or(true);
+    eprintln!("chaos: registering {} accounts (concurrency={reg_conc}, confirm={confirm})", shared.wallets.len());
+    let sem2 = Arc::new(Semaphore::new(reg_conc));
     let mut rhandles = Vec::new();
     for w in &shared.wallets {
         let from = w.address();
-        let pubkey = w.pubkey();
-        // Route RegisterPubkey through a single validator (v0). A
-        // register submitted to a follower is admitted to that node's
-        // local mempool but wasn't reliably reaching the anchor
-        // producer, so auth keys never got installed and the account's
-        // first plaintext transfer was rejected 'sender has no auth
-        // keys'. Pinning to providers[0] fixed installation.
+        let pubkey_bytes = w.pubkey().as_bytes().to_vec();
         let prov = shared.providers[0].clone();
         let cid = shared.chain_id;
         let permit = sem2.clone().acquire_owned().await.unwrap();
         rhandles.push(tokio::spawn(async move {
             let _p = permit;
-            // RegisterPubkey executes gaslessly, but the mempool /
-            // producer reserves gas_limit * base_fee up front. A large
-            // gas_limit on a lightly-funded pool account makes that
-            // reservation exceed the balance, so the producer silently
-            // drops the register (admitted, never included, no receipt,
-            // no auth keys). Keep the reservation small.
-            let tx = match TxBuilder::new()
-                .from(from)
-                .to(Address::ZERO)
-                .chain_id(cid)
-                .nonce(0)
-                .gas_limit(25_000)
-                .value(0)
-                .tx_type(TxType::RegisterPubkey)
-                .data(pubkey.as_bytes().to_vec())
-                .build()
-            {
-                Ok(t) => t,
-                Err(_) => return false,
-            };
-            // No signature — RegisterPubkey is the bootstrap tx; the
-            // chain skips FALCON verify for it. Retry the transient
-            // rate-limit / window-full rejections.
-            let mut attempt = 0u32;
-            loop {
-                match prov.send_raw_transaction(&tx).await {
-                    Ok(_) => return true,
-                    Err(e) => {
-                        let es = e.to_string();
-                        if (es.contains("rate limit") || es.contains("not acceptable")) && attempt < 40 {
-                            attempt += 1;
-                            tokio::time::sleep(Duration::from_millis(200)).await;
-                            continue;
-                        }
-                        static ONCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                        if ONCE.fetch_add(1, Ordering::Relaxed) < 3 {
-                            eprintln!("chaos: pool RegisterPubkey submit err: {e}");
-                        }
-                        return false;
-                    }
-                }
-            }
+            register_and_confirm(&prov, from, pubkey_bytes, cid, confirm).await
         }));
     }
     let mut registered = 0u64;
@@ -626,7 +592,7 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
             registered += 1;
         }
     }
-    eprintln!("chaos: RegisterPubkey submitted {registered}/{}", shared.wallets.len());
+    eprintln!("chaos: RegisterPubkey confirmed {registered}/{}", shared.wallets.len());
     // Seed the local nonce store at base 0: RegisterPubkey is
     // nonce-neutral, so each account's first *value* tx in the load
     // loop is nonce 0 (not 1). Seeding here avoids a get_nonce read
@@ -637,8 +603,78 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
             g.insert(w.address(), 0);
         }
     }
-    tokio::time::sleep(Duration::from_secs(8)).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
     Ok(())
+}
+
+/// Submit a RegisterPubkey for `from` and (when `confirm`) poll its
+/// receipt to Success before returning. Resubmits once if the receipt
+/// doesn't land within the window — a submit `Ok` doesn't guarantee
+/// the tx body reached the anchor producer, so an unconfirmed register
+/// gets re-injected. Returns true iff the account ends up registered
+/// (receipt Success, or already-registered on a re-run).
+async fn register_and_confirm(
+    prov: &Arc<RootProvider<HttpTransport>>,
+    from: Address,
+    pubkey_bytes: Vec<u8>,
+    cid: u64,
+    confirm: bool,
+) -> bool {
+    for _round in 0..2 {
+        let tx = match TxBuilder::new()
+            .from(from)
+            .to(Address::ZERO)
+            .chain_id(cid)
+            .nonce(0)
+            .gas_limit(25_000)
+            .value(0)
+            .tx_type(TxType::RegisterPubkey)
+            .data(pubkey_bytes.clone())
+            .build()
+        {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+        // Submit — retry the transient rate-limit / nonce-window
+        // rejections; treat an already-registered error as success.
+        let hash = {
+            let mut attempt = 0u32;
+            loop {
+                match prov.send_raw_transaction(&tx).await {
+                    Ok(h) => break h,
+                    Err(e) => {
+                        let es = e.to_string();
+                        if es.contains("already") || es.contains("auth keys") || es.contains("registered") {
+                            return true;
+                        }
+                        if (es.contains("rate limit") || es.contains("not acceptable")) && attempt < 40 {
+                            attempt += 1;
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            continue;
+                        }
+                        static ONCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                        if ONCE.fetch_add(1, Ordering::Relaxed) < 3 {
+                            eprintln!("chaos: register submit err: {e}");
+                        }
+                        return false;
+                    }
+                }
+            }
+        };
+        if !confirm {
+            return true;
+        }
+        // Poll the receipt to Success (~22s).
+        for _ in 0..15 {
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            if let Ok(Some(r)) = prov.get_receipt(&hash).await {
+                return r.is_success();
+            }
+        }
+        // Receipt never appeared — the body likely didn't propagate.
+        // Loop re-injects it once.
+    }
+    false
 }
 
 /// The load loop: a token-bucket rate governor (ramping target ->
