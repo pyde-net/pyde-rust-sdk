@@ -156,6 +156,20 @@ impl Shared {
         Ok(cur)
     }
 
+    /// Return an unspent nonce to the pool after a failed submit so the
+    /// account doesn't desync (advance past the chain's base and then
+    /// reject every subsequent tx). Only rolls back if `nonce` is still
+    /// the account's most recent — a later concurrent submit may have
+    /// already claimed the next slot.
+    fn rollback_nonce(&self, addr: &Address, nonce: u64) {
+        let mut g = self.nonces.lock().unwrap();
+        if let Some(n) = g.get_mut(addr) {
+            if *n == nonce + 1 {
+                *n = nonce;
+            }
+        }
+    }
+
     fn record(&self, kind: Kind, ok: bool) {
         self.submitted.fetch_add(1, Ordering::Relaxed);
         if ok {
@@ -241,6 +255,27 @@ async fn main() -> anyhow::Result<()> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    // Utility mode: derive + print the operator address (so the
+    // operator can be funded before --bootstrap runs), then exit.
+    if std::env::var("CHAOS_PRINT_OPERATOR").map(|v| v == "1").unwrap_or(false) {
+        let seed = std::env::var("CHAOS_OPERATOR_SEED")
+            .ok()
+            .and_then(|h| {
+                let b = hex::decode(h.trim_start_matches("0x")).ok()?;
+                let mut s = [0u8; 32];
+                if b.len() == 32 {
+                    s.copy_from_slice(&b);
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| anyhow::anyhow!("CHAOS_OPERATOR_SEED (32-byte hex) required"))?;
+        let op = Wallet::from_seed(&seed)?;
+        println!("{}", op.address());
+        return Ok(());
+    }
+
     let n_accounts: u32 = env_or("CHAOS_ACCOUNTS", 3000u32);
     let target_tps: f64 = env_or("CHAOS_TARGET_TPS", 200.0);
     let max_tps: f64 = env_or("CHAOS_MAX_TPS", 500.0);
@@ -381,6 +416,47 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
         "chaos: operator {op_addr} balance={op_bal} quanta, funding {} accounts x {fund_quanta}",
         shared.wallets.len()
     );
+
+    // Phase 0 — register the operator's pubkey. Every account
+    // (operator included) must publish its FALCON pubkey before the
+    // chain will accept its signed txs; without this the operator's
+    // funding transfers are rejected with "sender has no auth keys".
+    // Idempotent: a second RegisterPubkey for an already-registered
+    // account is rejected harmlessly, so re-runs are safe.
+    {
+        let op_nonce0 = shared.providers[0].get_nonce(&op_addr).await.unwrap_or(0);
+        if op_nonce0 == 0 {
+            let tx = TxBuilder::new()
+                .from(op_addr)
+                .to(Address::ZERO)
+                .chain_id(shared.chain_id)
+                .nonce(0)
+                .gas_limit(200_000)
+                .value(0)
+                .tx_type(TxType::RegisterPubkey)
+                .data(operator.pubkey().as_bytes().to_vec())
+                .build()?;
+            match shared.providers[0].send_raw_transaction(&tx).await {
+                Ok(h) => {
+                    eprintln!("chaos: operator RegisterPubkey submitted hash={h}; polling receipt");
+                    for _ in 0..15 {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        match shared.providers[0].get_receipt(&h).await {
+                            Ok(Some(r)) => {
+                                eprintln!("chaos: operator register receipt: {r:?}");
+                                break;
+                            }
+                            Ok(None) => {}
+                            Err(e) => eprintln!("chaos: get_receipt err: {e}"),
+                        }
+                    }
+                }
+                Err(e) => eprintln!("chaos: operator RegisterPubkey failed at submit: {e}"),
+            }
+        } else {
+            eprintln!("chaos: operator already has nonce {op_nonce0}; assuming registered");
+        }
+    }
     if op_bal < fund_quanta.saturating_mul(shared.wallets.len() as u128) {
         eprintln!(
             "chaos: WARNING operator balance may be insufficient; fund it via `pyde soak --recipient {op_addr} --value-per-tx <big>`"
@@ -389,40 +465,74 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
 
     // Phase 1 — funding. Sequential nonce off the operator; bounded
     // concurrency on the network I/O.
+    //
+    // RegisterPubkey is NONCE-NEUTRAL: it installs the account's auth
+    // keys without advancing the sender's nonce base. So the operator's
+    // first *value* tx (funding) starts at the same base we read before
+    // registering — NOT base+1. The chain reports this base directly via
+    // get_nonce ("sender base=N"); we trust it.
+    // The mempool accepts a bounded window of nonces above the sender's
+    // included base and rejects gaps ("nonce N not acceptable (sender
+    // base=B)"). Concurrent out-of-order submits therefore fail. We
+    // submit strictly in nonce order and retry when the window is
+    // momentarily full — as prior funding txs get included, base
+    // advances and the next nonce becomes acceptable.
     let mut op_nonce = shared.providers[0].get_nonce(&op_addr).await?;
-    let sem = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
-    let mut handles = Vec::new();
+    eprintln!("chaos: operator funding starts at nonce {op_nonce}");
+    let mut funded = 0u64;
     for w in &shared.wallets {
         let to = w.address();
-        let nonce = op_nonce;
-        op_nonce += 1;
-        let op = operator.clone();
-        let prov = shared.provider_rr();
-        let cid = shared.chain_id;
-        let permit = sem.clone().acquire_owned().await.unwrap();
-        handles.push(tokio::spawn(async move {
-            let _p = permit;
-            let mut tx = match TxBuilder::new()
-                .from(op.address())
-                .chain_id(cid)
-                .nonce(nonce)
-                .gas_limit(GAS_TRANSFER)
-                .transfer(to, fund_quanta)
-                .build()
-            {
-                Ok(t) => t,
-                Err(_) => return false,
-            };
-            if op.sign_tx(&mut tx).await.is_err() {
-                return false;
+        let mut tx = match TxBuilder::new()
+            .from(op_addr)
+            .chain_id(shared.chain_id)
+            .nonce(op_nonce)
+            .gas_limit(GAS_TRANSFER)
+            .transfer(to, fund_quanta)
+            .build()
+        {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if operator.sign_tx(&mut tx).await.is_err() {
+            continue;
+        }
+        let mut attempt = 0u32;
+        loop {
+            match shared.provider_rr().send_raw_transaction(&tx).await {
+                Ok(_) => {
+                    funded += 1;
+                    op_nonce += 1;
+                    break;
+                }
+                Err(e) => {
+                    let es = e.to_string();
+                    // Both window-full ("not acceptable") and the
+                    // per-sender rate limit ("rate limit exceeded") are
+                    // transient: back off and retry the SAME nonce so the
+                    // sequence stays gap-free.
+                    let transient = es.contains("not acceptable") || es.contains("rate limit");
+                    if transient && attempt < 150 {
+                        attempt += 1;
+                        // Window full (nonce ahead of included base) or
+                        // rate-limited — wait patiently for inclusion to
+                        // advance the base; this paces funding to the
+                        // chain's real inclusion rate.
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        continue;
+                    }
+                    static ONCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                    if ONCE.fetch_add(1, Ordering::Relaxed) < 3 {
+                        eprintln!("chaos: funding err (nonce {op_nonce}): {e}");
+                    }
+                    op_nonce += 1;
+                    break;
+                }
             }
-            prov.send_raw_transaction(&tx).await.is_ok()
-        }));
-    }
-    let mut funded = 0u64;
-    for h in handles {
-        if h.await.unwrap_or(false) {
-            funded += 1;
+        }
+        // Pace under the per-sender rate limit (10/s, burst 20).
+        tokio::time::sleep(Duration::from_millis(110)).await;
+        if funded % 100 == 0 && funded > 0 {
+            eprintln!("chaos: funded {funded}/{}", shared.wallets.len());
         }
     }
     eprintln!("chaos: funding submitted {funded}/{}", shared.wallets.len());
@@ -458,8 +568,27 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
                 Err(_) => return false,
             };
             // No signature — RegisterPubkey is the bootstrap tx; the
-            // chain skips FALCON verify for it.
-            prov.send_raw_transaction(&tx).await.is_ok()
+            // chain skips FALCON verify for it. Retry the transient
+            // rate-limit / window-full rejections.
+            let mut attempt = 0u32;
+            loop {
+                match prov.send_raw_transaction(&tx).await {
+                    Ok(_) => return true,
+                    Err(e) => {
+                        let es = e.to_string();
+                        if (es.contains("rate limit") || es.contains("not acceptable")) && attempt < 40 {
+                            attempt += 1;
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            continue;
+                        }
+                        static ONCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                        if ONCE.fetch_add(1, Ordering::Relaxed) < 3 {
+                            eprintln!("chaos: pool RegisterPubkey submit err: {e}");
+                        }
+                        return false;
+                    }
+                }
+            }
         }));
     }
     let mut registered = 0u64;
@@ -469,12 +598,14 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
         }
     }
     eprintln!("chaos: RegisterPubkey submitted {registered}/{}", shared.wallets.len());
-    // Seed the local nonce store: after RegisterPubkey (nonce 0),
-    // the next tx from each account is nonce 1.
+    // Seed the local nonce store at base 0: RegisterPubkey is
+    // nonce-neutral, so each account's first *value* tx in the load
+    // loop is nonce 0 (not 1). Seeding here avoids a get_nonce read
+    // (which lags under load) on first use.
     {
         let mut g = shared.nonces.lock().unwrap();
         for w in &shared.wallets {
-            g.insert(w.address(), 1);
+            g.insert(w.address(), 0);
         }
     }
     tokio::time::sleep(Duration::from_secs(8)).await;
@@ -647,6 +778,11 @@ async fn submit_one(shared: &Arc<Shared>, kind: Kind, acct_idx: usize) -> bool {
     let cid = shared.chain_id;
     let prov = shared.provider_rr();
 
+    // Wrapped so a failed submit rolls the unspent nonce back into the
+    // pool instead of leaving the account desynced (see rollback_nonce).
+    // `return false` inside the arms resolves this async block, not the
+    // whole fn.
+    let ok = async {
     match kind {
         Kind::Transfer => {
             // random recipient among the pool
@@ -715,6 +851,12 @@ async fn submit_one(shared: &Arc<Shared>, kind: Kind, acct_idx: usize) -> bool {
             submit_call(shared.flashloan_vault.as_ref(), wallet, from, cid, nonce, &prov, "deposit", vec![pyde_rust_sdk::contract::Value::U128(1_000)]).await
         }
     }
+    }
+    .await;
+    if !ok {
+        shared.rollback_nonce(&from, nonce);
+    }
+    ok
 }
 
 #[allow(clippy::too_many_arguments)]
