@@ -75,14 +75,21 @@ const GAS_TRANSFER: u64 = 21_000;
 const GAS_CALL: u64 = 2_000_000;
 const MAX_IN_FLIGHT: usize = 64;
 /// Minimum spacing between two encrypted submits from the SAME account
-/// (#441). ~1.5s caps per-account encrypted rate to ~0.67/s, below the
-/// threshold-decryption ceremony's per-account completion rate, so an
-/// account's inner nonces never outrun its own decrypt+commit and
-/// out-of-order decryption can't gap-stall it. Aggregate encrypted
-/// throughput scales with account count (3K accounts × 0.67/s), so
-/// this bounds the pathological per-account burst without capping the
-/// lane. Overridable via CHAOS_ENCRYPTED_MIN_MS.
-const ENCRYPTED_MIN_INTERVAL_MS_DEFAULT: u64 = 1500;
+/// (#441). Must exceed the threshold-decryption ceremony's per-envelope
+/// decrypt+commit LATENCY so an account never submits its next inner
+/// nonce before the previous one has committed (out-of-order decryption
+/// would gap-stall it — the encrypted lane has no submit-time nonce
+/// backpressure of its own). Live-measured latency at moderate load is
+/// ~2.5s (10 tps encrypted at 2.5s/account spacing committed 100%),
+/// so the default is set safely above it. This is a BOUNDED MITIGATION,
+/// not a complete fix — under heavy aggregate encrypted load the
+/// per-envelope latency grows, so a fixed interval can't guarantee
+/// ordering. The complete fix is confirm-before-next (submit encrypted
+/// nonce N only once chain nonce == N) or the engine deferred-execution
+/// queue (#441). At the intended 3K-account scale the per-account rate
+/// is tiny (0.03/s at 100 tps) and this never binds. Override:
+/// CHAOS_ENCRYPTED_MIN_MS.
+const ENCRYPTED_MIN_INTERVAL_MS_DEFAULT: u64 = 3000;
 
 /// One kind of transaction the mix can emit. Counters are per-kind
 /// so the NDJSON stream shows the shape of the load, not just a
