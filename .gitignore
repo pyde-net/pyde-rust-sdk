@@ -19,3 +19,6 @@ fuzz/artifacts/
 # Built contract artifacts (regenerated via `otigen build`)
 examples/contracts/**/build/
 examples/contracts/**/artifacts/
+
+# Local Claude Code agent state — never commit
+.claude/
