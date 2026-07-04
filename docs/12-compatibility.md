@@ -167,7 +167,7 @@ with its native crypto stack, extract the 897-byte pubkey +
 1281-byte secret, then construct a new keystore via the target
 SDK's `Wallet::from_keys` + `to_keystore`.
 
-### Convergence is on the roadmap
+### Convergence is planned
 
 Both SDKs will eventually settle on one format (probably
 ChaCha20-Poly1305 + flat shape since TS's is cleaner and the

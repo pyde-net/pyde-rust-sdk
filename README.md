@@ -146,7 +146,7 @@ wallet.
 ## Compatibility
 
 - **Chain wire format**: every type the SDK puts on the wire is byte-for-byte identical to its counterpart in `engine/crates/types/`. Hash algorithm (`tx_hash`), Borsh field order, and `TxType` / `FeePayer` / `AuthKeys` tag values all match.
-- **Keystore JSON**: SDK-specific (AES-256-GCM + nested envelope). Not interchangeable with `pyde-ts-sdk`'s keystore (which uses ChaCha20-Poly1305 + a flat envelope) — convergence is on the roadmap; see [docs/12-compatibility.md](docs/12-compatibility.md).
+- **Keystore JSON**: SDK-specific (AES-256-GCM + nested envelope). Not interchangeable with `pyde-ts-sdk`'s keystore (which uses ChaCha20-Poly1305 + a flat envelope) — convergence is planned; see [docs/12-compatibility.md](docs/12-compatibility.md).
 - **ABI schema**: `pyde.abi` custom section decoded up to `ContractAbi::V1_2`.
 
 ## License
