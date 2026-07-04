@@ -537,5 +537,5 @@ the dedicated chapter for the full walkthrough.
 
 For **per-account multisig wallets** (a user-level wallet that
 requires N co-signatures): assemble the bundle by hand using the
-same primitive. A first-class "multisig wallet" helper is on the
-v2 roadmap once programmable accounts land.
+same primitive. A first-class "multisig wallet" helper is planned
+for v2 once programmable accounts land.
