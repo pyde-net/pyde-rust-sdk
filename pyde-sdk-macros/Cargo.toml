@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2021"
 description = "Proc-macros for pyde-rust-sdk — pyde_abi! contract codegen"
 repository = "https://github.com/pyde-net/pyde-rust-sdk"
+authors = ["zarah <zarah@pyde.network>"]
 
 [lib]
 proc-macro = true
