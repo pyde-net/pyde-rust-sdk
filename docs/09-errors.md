@@ -135,7 +135,7 @@ codes mirroring `engine/crates/types/src/error.rs`:
 | -13  | `ERR_INVALID_FUNCTION_NAME`    | Calldata selector doesn't match any entry |
 | -14  | `ERR_XCALL_RATE_LIMITED`       | Cross-contract-call quota exceeded |
 | -15  | `ERR_PARACHAIN_ONLY`           | Called a §8 host fn from a `Contract` (only allowed on `Parachain`) |
-| -16  | `ERR_CIPHERTEXT_INVALID`       | Threshold-decryption AEAD failed |
+| -16  | `ERR_CIPHERTEXT_INVALID`       | Ciphertext AEAD verification failed |
 | -17  | `ERR_SIGNATURE_INVALID`        | FALCON verify failed |
 | -100 | `ERR_INTERNAL`                 | Chain-side bug. Should never reach user code. |
 

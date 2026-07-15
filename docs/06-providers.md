@@ -397,7 +397,7 @@ if let Some(addr) = provider.resolve_name("counter").await? {
 
 ---
 
-### Transactions — 7 methods
+### Transactions — 6 methods
 
 #### `send_raw_transaction(&tx)`
 
@@ -408,58 +408,13 @@ if let Some(addr) = provider.resolve_name("counter").await? {
 | Returns | The canonical `tx_hash`. The tx is now in the mempool; poll for the receipt separately. |
 | Errors | `SdkError::Rpc` for chain-level rejections (bad sig, nonce out of window, insufficient balance, etc.). |
 
-#### `send_raw_encrypted_transaction(envelope_hex)`
-
-| | |
-|---|---|
-| Signature | `async fn send_raw_encrypted_transaction(&self, envelope_hex: &str) -> Result<TxHash, SdkError>` |
-| Wire | `pyde_sendRawEncryptedTransaction` |
-| Returns | The 32-byte Blake3 envelope hash (NOT the inner plaintext `tx_hash`). |
-
-MEV-protection sister of `send_raw_transaction`. Wallets encrypt
-a plaintext `Tx` under the chain's current threshold pubkey
-(from `get_threshold_public_key()`), borsh-encode the result as
-an `EncryptedTxEnvelope`, and submit the bytes hex-encoded
-here.
-
-The returned hash is `Blake3(version || ciphertext_len_le ||
-ciphertext)` — used for envelope-level identification only. The
-inner plaintext carries its own Poseidon2 `tx_hash` that's only
-knowable post-decryption, and receipts go under THAT hash; poll
-`get_receipt(plaintext_hash)` or `get_transaction_receipt(plaintext_hash)`
-after the wave commits.
-
-**v1 mock-DKG warning:** check `get_threshold_public_key().scheme`
-first. If it reports `"mock"` (the v1 default until real
-Kyber-768 crypto lands), encrypted submissions will **sit
-unprocessed**. Treat `scheme != "kyber-768"` as "encrypted path
-not yet ready, fall back to plaintext."
-
-Engine v1 size limits: min 1213 bytes, max 128 KiB. Bigger /
-smaller envelopes get rejected with `SdkError::Rpc` carrying
-the engine's `EncryptedAdmissionError` variant.
-
-```rust,no_run
-# use std::sync::Arc;
-# use pyde_rust_sdk::Provider;
-# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
-let pk = provider.get_threshold_public_key().await?;
-let Some(pk) = pk else {
-    println!("DKG not ready, fall back to plaintext send");
-    return Ok(());
-};
-if pk.scheme != "kyber-768" {
-    println!("v1 mock — submissions will sit; using plaintext");
-    return Ok(());
-}
-// Encrypt a Tx under pk.public_key into a borsh-encoded
-// EncryptedTxEnvelope (implementation lives in pyde-crypto):
-let envelope_hex = encrypt_tx_envelope(/* &tx, &pk */);
-let envelope_hash = provider.send_raw_encrypted_transaction(&envelope_hex).await?;
-println!("encrypted envelope submitted: {envelope_hash}");
-# Ok(()) }
-# fn encrypt_tx_envelope() -> String { String::new() }
-```
+This is the only send method on the trait. The private (commit-reveal)
+mempool rides the same wire path: a Commit (`TxType::Commit`) and a
+Reveal (`TxType::Reveal`) are both ordinary `Tx`es sent through
+`send_raw_transaction`. See [Transactions §5](05-transactions.md)
+for the payload shapes, and the `send_private` helper in
+[§6.3 convenience helpers](#convenience-helpers-on-rootprovider-not-on-the-trait--2-methods)
+for the one-call flow.
 
 #### `call(&CallRequest)`
 
@@ -635,60 +590,7 @@ sync use `get_snapshot_manifest` + fetch chunks on demand.
 
 ---
 
-### Encrypted mempool — 1 method
-
-#### `get_threshold_public_key()`
-
-| | |
-|---|---|
-| Signature | `async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError>` |
-| Wire | `pyde_getThresholdPublicKey` |
-| Returns | The current DKG-epoch pubkey wallets encrypt under, or `None` if no DKG ceremony has run yet. |
-
-Wallets need this before submitting via
-[`send_raw_encrypted_transaction`](#send_raw_encrypted_transactionenvelope_hex)
-for MEV protection. Per-epoch — refresh per encrypted submit
-(cheap, no consensus round-trip).
-
-`ThresholdPublicKey` shape:
-
-```rust,ignore
-pub struct ThresholdPublicKey {
-    pub epoch: String,        // DKG epoch, hex string
-    pub scheme: String,       // "mock" (v1 default) or "kyber-768"
-    pub public_key: String,   // pubkey bytes, hex string
-}
-```
-
-**v1 mock-DKG**: v1 boot writes a deterministic mock pubkey
-(`scheme: "mock"`, `epoch: "0x0"`) so the encrypted-mempool
-path is reachable from the first wave. Real Kyber-768 crypto
-overwrites it at the per-epoch combine. Until then,
-encrypted submissions **will sit unprocessed**. Always check
-`scheme` before encrypting:
-
-```rust,no_run
-# use std::sync::Arc;
-# use pyde_rust_sdk::Provider;
-# async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
-match provider.get_threshold_public_key().await? {
-    Some(pk) if pk.scheme == "kyber-768" => {
-        // Real crypto — safe to encrypt + submit.
-    }
-    Some(pk) => {
-        eprintln!("encrypted path not ready yet (scheme: {})", pk.scheme);
-        // Fall back to plaintext send.
-    }
-    None => {
-        eprintln!("DKG hasn't run yet — fall back to plaintext");
-    }
-}
-# Ok(()) }
-```
-
----
-
-### Convenience helper (on `RootProvider`, not on the trait) — 1 method
+### Convenience helpers (on `RootProvider`, not on the trait) — 2 methods
 
 #### `send_transaction(&tx)`
 
@@ -698,9 +600,9 @@ match provider.get_threshold_public_key().await? {
 | Wire | `pyde_sendRawTransaction` (then wraps the hash) |
 | Returns | A `PendingTx` ready to poll for the receipt. |
 
-This is the **one** method that's not on the `Provider` trait —
-it lives on the concrete `RootProvider<T>` because returning
-`PendingTx` needs `Arc<Self>`, which trait methods can't carry.
+Not on the `Provider` trait — it lives on the concrete
+`RootProvider<T>` because returning `PendingTx` needs `Arc<Self>`,
+which trait methods can't carry.
 
 ```rust,no_run
 # use std::sync::Arc;
@@ -712,6 +614,56 @@ let pending = provider.send_transaction(tx).await?;
 let receipt = pending.wait_for_receipt().await?;
 # Ok(()) }
 ```
+
+#### `send_private(&signer, inner_tx)`
+
+| | |
+|---|---|
+| Signature | `async fn send_private(self: &Arc<Self>, signer: &Signer, inner_tx: Tx) -> Result<PrivateSendHandle, SdkError>` |
+| Wire | `pyde_sendRawTransaction` (twice — Commit then Reveal) |
+| Returns | A `PrivateSendHandle` tracking both phases through to the inner tx's receipt. |
+
+The one-call front-running-protection flow. `send_private` signs
+the inner `Tx`, submits a Commit that binds
+`commitment_hash(inner_tx_bytes, nonce)` and posts
+`required_bond(value_ceiling)`, waits out the reveal window, then
+submits the matching Reveal so the inner tx executes at its
+pre-committed ordering position.
+
+Like `send_transaction`, it lives on the concrete `RootProvider<T>`
+rather than the trait because the returned handle needs `Arc<Self>`.
+
+```rust,no_run
+# use std::sync::Arc;
+# use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
+# use pyde_rust_sdk::types::Tx;
+# use pyde_rust_sdk::signer::Signer;
+# async fn run(signer: &Signer, inner_tx: Tx) -> pyde_rust_sdk::Result<()> {
+# let provider = Arc::new(RootProvider::new(HttpTransport::new("http://127.0.0.1:9933")?));
+let handle = provider.send_private(signer, inner_tx).await?;
+println!("commit:  {}", handle.commit_hash());
+println!("reveal:  {}", handle.reveal_hash());
+println!("inner:   {}", handle.inner_hash());
+// Resolves on the INNER tx receipt, once the reveal is executed.
+let receipt = handle.await_receipt().await?;
+# Ok(()) }
+```
+
+`PrivateSendHandle` exposes `commit_hash()`, `reveal_hash()`,
+`inner_hash()`, and `await_receipt()` (which resolves on the
+**inner** tx's receipt, not the Commit or Reveal). For relays or
+split commit/reveal phases, drop to the low-level builders
+`TxBuilder::commit(commitment, value_ceiling)` and
+`TxBuilder::reveal(commitment, nonce, inner_tx_bytes)` — see
+[Transactions §5](05-transactions.md).
+
+**What this protects.** Content-targeted front-running is
+prevented: a transaction's ordering position is fixed before its
+contents are visible, with no decryption key anywhere. It is not
+a total ordering lock — the reveal necessarily exposes the
+contents before the inner tx executes, and an unrelated tx
+arriving in the reveal-to-execute window can still be ordered
+around it.
 
 ---
 

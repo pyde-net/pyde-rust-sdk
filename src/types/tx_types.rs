@@ -116,6 +116,23 @@ pub enum TxType {
     /// multisig gates submission; `data` is
     /// `borsh(DisputeSlashPayload)`.
     DisputeSlash = 0x10,
+    /// `0x11` — Commit-reveal private mempool, phase 1: reserve an
+    /// ordered slot for a hidden transaction. `to == Address::ZERO`;
+    /// `data` is `borsh(`[`CommitPayload`]`)`; `value` is the
+    /// refundable reveal bond ([`crate::tx::required_bond`]). The
+    /// tx's ordering position IS the reserved slot — fixed while the
+    /// contents are still hidden, so no actor can read this tx and
+    /// inject a reaction ahead of it.
+    Commit = 0x11,
+    /// `0x12` — Commit-reveal private mempool, phase 2: open a
+    /// previously committed slot. `to == Address::ZERO`; `data` is
+    /// `borsh(`[`RevealPayload`]`)`. The engine recomputes
+    /// [`crate::tx::commitment_hash`] over `(inner_tx, nonce)` and
+    /// rejects on mismatch; the inner tx then executes in COMMIT
+    /// order in the resolution pass and the bond is refunded. Any
+    /// account may submit the reveal — the preimage is the
+    /// authorisation — so a relay can reveal on a sender's behalf.
+    Reveal = 0x12,
 }
 
 /// Who pays the gas for a transaction.
@@ -208,6 +225,8 @@ pub struct AccessEntry {
 /// | `StakeWithdraw/ClaimReward/SweepAirdrop` | empty                            |
 /// | `Unjail`             | empty                                                |
 /// | `DisputeSlash`       | `borsh(DisputeSlashPayload)`                         |
+/// | `Commit`             | `borsh(`[`CommitPayload`]`)`                         |
+/// | `Reveal`             | `borsh(`[`RevealPayload`]`)`                         |
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct Tx {
     /// Sender address.
@@ -354,54 +373,52 @@ pub struct DeployData {
     pub init_calldata: Vec<u8>,
 }
 
-/// Submitted via [`crate::Provider::send_raw_encrypted_transaction`]
-/// for the MEV-protected mempool path.
+/// Borsh-encoded payload carried in `Tx::data` when
+/// `tx_type == TxType::Commit`.
 ///
-/// Mirrors `pyde_engine_types::EncryptedTxEnvelope` byte-for-byte
-/// — Borsh: 1-byte version + length-prefixed `Vec<u8>` ciphertext.
-/// Build the ciphertext via `pyde_crypto::threshold::threshold_encrypt(tpk, &borsh_tx)`
-/// followed by `.to_wire_bytes()` (not `.to_bytes()` — the engine's
-/// admit-side decoder expects the wire form).
+/// Phase 1 of the commit-reveal private mempool: reserves an ordered
+/// slot for a hidden transaction. The Commit tx's `value` is the
+/// refundable reveal bond ([`crate::tx::required_bond`]`(value_ceiling)`),
+/// held in the on-chain commitment entry until the matching `Reveal`
+/// lands (refund) or the reveal window expires (burned).
 ///
-/// The envelope hash is the dedup key the mempool uses and the
-/// `tx_hash` field DecryptionShares attest under — wire-stable per
-/// the spec.
+/// Mirrors `pyde_engine_tx::commit_reveal::CommitPayload` byte-for-byte.
+/// Field order is wire-load-bearing — Borsh serialises positionally.
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-pub struct EncryptedTxEnvelope {
-    /// Wire-format version. v1 ships as `1`; validators MUST reject
-    /// unknown versions at mempool admit.
-    pub version: u8,
-    /// Threshold-Kyber ciphertext bytes (output of
-    /// `threshold_encrypt(...).to_wire_bytes()`).
-    pub ciphertext: Vec<u8>,
+pub struct CommitPayload {
+    /// [`crate::tx::commitment_hash`] of the hidden tx:
+    /// `Blake3(domain_tag || borsh(inner_tx) || nonce)`.
+    pub commitment: [u8; 32],
+    /// Sender-declared upper bound on the hidden tx's `value`, in
+    /// quanta. The reveal is rejected if `inner_tx.value >
+    /// value_ceiling`, and the bond scales with the ceiling — so it
+    /// tracks the potential extraction without revealing the target
+    /// or amount. Declaring `0` is valid for value-less calls.
+    pub value_ceiling: u128,
 }
 
-impl EncryptedTxEnvelope {
-    /// v1 wire-format version constant.
-    pub const VERSION: u8 = 1;
-
-    /// Minimum acceptable ciphertext size: Kyber-768 KEM ciphertext
-    /// (1184) + nonce (12) + tag (16) + 1-byte inner-Tx floor.
-    /// Smaller payloads are rejected at admit.
-    pub const MIN_CIPHERTEXT_LEN: usize = 1184 + 12 + 16 + 1;
-
-    /// Maximum acceptable ciphertext size — same as
-    /// [`MAX_TX_SIZE`] so the encrypted path's DoS surface mirrors
-    /// the plaintext path's.
-    pub const MAX_CIPHERTEXT_LEN: usize = MAX_TX_SIZE;
-
-    /// Compute the canonical envelope hash:
-    /// `Blake3(version || ciphertext_len_le || ciphertext)`.
-    /// Matches the engine's `EncryptedTxEnvelope::envelope_hash`.
-    #[must_use]
-    pub fn envelope_hash(&self) -> crate::types::TxHash {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&[self.version]);
-        let len = u32::try_from(self.ciphertext.len()).unwrap_or(u32::MAX);
-        hasher.update(&len.to_le_bytes());
-        hasher.update(&self.ciphertext);
-        crate::types::TxHash::new(*hasher.finalize().as_bytes())
-    }
+/// Borsh-encoded payload carried in `Tx::data` when
+/// `tx_type == TxType::Reveal`.
+///
+/// Phase 2 of the commit-reveal private mempool: opens a previously
+/// committed slot. The engine recomputes [`crate::tx::commitment_hash`]
+/// over `(inner_tx, nonce)` and rejects on mismatch; on success the
+/// hidden tx executes in COMMIT order in the wave-commit resolution
+/// pass and the bond is refunded to the original committer.
+///
+/// Mirrors `pyde_engine_tx::commit_reveal::RevealPayload` byte-for-byte.
+/// Field order is wire-load-bearing — Borsh serialises positionally.
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+pub struct RevealPayload {
+    /// Which pending commitment this opens — the same 32 bytes the
+    /// `Commit` posted.
+    pub commitment: [u8; 32],
+    /// The 32-byte salt drawn at commit time. Must be fresh CSPRNG
+    /// per commit and never reused; reuse breaks hiding.
+    pub nonce: [u8; 32],
+    /// `borsh(Tx)` of the hidden, fully-signed inner transaction —
+    /// the SAME bytes hashed into [`Self::commitment`].
+    pub inner_tx: Vec<u8>,
 }
 
 // Internal test-only accessor; placed before the `#[cfg(test)] mod
@@ -448,6 +465,26 @@ mod tests {
         assert_eq!(TxType::StakeDeposit as u8, 0x03);
         assert_eq!(TxType::RegisterPubkey as u8, 0x0D);
         assert_eq!(TxType::DisputeSlash as u8, 0x10);
+        assert_eq!(TxType::Commit as u8, 0x11);
+        assert_eq!(TxType::Reveal as u8, 0x12);
+    }
+
+    #[test]
+    fn commit_reveal_payloads_borsh_round_trip() {
+        let commit = CommitPayload {
+            commitment: [0xAB; 32],
+            value_ceiling: 5_000_000_000,
+        };
+        let bytes = borsh::to_vec(&commit).unwrap();
+        assert_eq!(borsh::from_slice::<CommitPayload>(&bytes).unwrap(), commit);
+
+        let reveal = RevealPayload {
+            commitment: [0xAB; 32],
+            nonce: [0x5A; 32],
+            inner_tx: vec![1, 2, 3, 4],
+        };
+        let bytes = borsh::to_vec(&reveal).unwrap();
+        assert_eq!(borsh::from_slice::<RevealPayload>(&bytes).unwrap(), reveal);
     }
 
     #[test]

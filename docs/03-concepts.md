@@ -382,7 +382,7 @@ So you don't go hunting for them:
 |---|---|
 | **Native multisig** | `AuthKeys::MultiSig` is a first-class account shape and the treasury system account is multisig-only. See [Multisig §10](10-multisig.md). |
 | **First-class contract names** | `Contract::load("counter", …)` uses the chain's name resolver instead of demanding a 32-byte address. |
-| **Threshold-decrypted txs** (opt-in) | Per-account encryption for MEV-resistant transfers. The SDK exposes the wire shape; full helper surface ships in v2. |
+| **Private txs via commit-reveal** (opt-in) | A commit-reveal lane for front-running resistance. A tx's ordering position is fixed before its contents are visible, with no decryption key anywhere. Not a total ordering lock: the reveal exposes contents before the inner tx executes. `RootProvider::send_private` drives the one-call flow. See [Transactions §5](05-transactions.md). |
 | **Wave parallelism** | Independent txs in the same wave execute in parallel — declare an `access_list` to help the scheduler. |
 | **Deterministic devnet** | `otigen devnet` always produces the same 10 prefund accounts via `Blake3("pyde-devnet-v1/" || i)`. Reproducible test environments without snapshot files. |
 | **Post-quantum from day one** | FALCON-512 sigs aren't a future migration — they're the v1 default. |

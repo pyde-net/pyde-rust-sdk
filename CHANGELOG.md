@@ -21,39 +21,48 @@ pre-1.0 may have breaking changes at any minor bump (see
     network-load chart in one round-trip).
 - New `RecentWaveSummary { wave_id, gas_used, gas_limit, utilisation }`
   type for per-wave entries in `FeeData.recent_waves`.
-- **Three new `Provider` methods** for encrypted submission,
-  threshold-DKG pubkey, and hard-finality cert:
-  - `send_raw_encrypted_transaction(envelope_hex)` →
-    `pyde_sendRawEncryptedTransaction`. Submits a borsh-encoded
-    `EncryptedTxEnvelope` for the MEV-protected mempool path.
-    Returns the 32-byte Blake3 envelope hash. Engine v1 size
-    limits enforced: min 1213 bytes, max 128 KiB.
-  - `get_threshold_public_key()` →
-    `pyde_getThresholdPublicKey`. Returns the current DKG-epoch
-    pubkey wallets encrypt under (`{epoch, scheme, public_key}`).
-    Callers should check
-    `scheme == "kyber-768-goldilocks"` (the real-crypto path);
-    a `"mock"` scheme indicates v1 mock-DKG and encrypted submits
-    will sit unprocessed until real-crypto ships.
+- **Commit-reveal private mempool.** The MEV-protected lane is now a
+  two-phase commit-reveal flow (no decryption key anywhere). New
+  `TxType` variants `Commit = 0x11` and `Reveal = 0x12`, with typed
+  payloads carried in `tx.data`:
+  - `CommitPayload { commitment: [u8; 32], value_ceiling: u128 }` —
+    the `tx.data` of a Commit; `tx.value` must equal
+    `required_bond(value_ceiling)`.
+  - `RevealPayload { commitment: [u8; 32], nonce: [u8; 32], inner_tx: Vec<u8> }`
+    — the `tx.data` of a Reveal.
+  - `crate::tx::commitment_hash(inner_tx_bytes, nonce)` =
+    `Blake3(b"pyde-commit-reveal-v1" || inner_tx_bytes || nonce)`.
+  - `crate::tx::required_bond(value_ceiling)` =
+    `max(MIN_COMMIT_BOND, value_ceiling * COMMIT_BOND_BPS / 10_000)`.
+  - Constants in `crate::tx`: `COMMIT_REVEAL_WINDOW_WAVES = 120`,
+    `MIN_COMMIT_BOND = 1_000_000_000` (1 PYDE), `COMMIT_BOND_BPS = 100`.
+  What this protects: content-targeted front-running is prevented —
+  a transaction's ordering position is fixed before its contents are
+  visible. It is not a total ordering lock: the reveal necessarily
+  exposes the contents before the inner tx executes, and an unrelated
+  tx arriving in the reveal-to-execute window can still be ordered
+  around it.
+- **`RootProvider::send_private(&signer, inner_tx) -> PrivateSendHandle`**
+  — the one-call private-send flow: signs the inner tx, submits the
+  Commit, waits the window, then submits the Reveal. `PrivateSendHandle`
+  exposes `commit_hash()`, `reveal_hash()`, `inner_hash()`, and
+  `await_receipt()` (which resolves on the *inner* tx receipt).
+- **`TxBuilder::commit(commitment, value_ceiling)` and
+  `TxBuilder::reveal(commitment, nonce, inner_tx_bytes)`** — low-level
+  builders for relays or split-phase submission.
+- **New `Provider` method** for the hard-finality cert:
   - `get_hard_finality_cert(wave_id)` →
     `pyde_getHardFinalityCert`. Returns the wave's hard-finality
     cert (bundle of ≥85 validator signatures) for light-client +
     cross-chain-bridge use. `wave_id` is sent as a bare JSON
     number on the wire (engine quirk shared with `get_wave`).
-- New types `ThresholdPublicKey` `{epoch, scheme, public_key}` and
-  `EncryptedTxEnvelope` `{version, ciphertext}` — the latter mirrors
-  `pyde_engine_types::EncryptedTxEnvelope` byte-for-byte so callers
-  don't need a direct dep on the engine's types crate. Carries
-  `VERSION = 1`, `MIN_CIPHERTEXT_LEN = 1213`,
-  `MAX_CIPHERTEXT_LEN = MAX_TX_SIZE`, and an `envelope_hash()`
-  matching the engine's `Blake3(version || len_le || ciphertext)`.
-- `examples/encrypted_transfer.rs` — end-to-end round-trip of the
-  MEV-protected mempool path. Fetches the threshold pubkey,
-  encrypts a signed Tx via `pyde_crypto::threshold::threshold_encrypt`
-  + `.to_wire_bytes()`, wraps in `EncryptedTxEnvelope`, submits,
-  and waits for the plaintext receipt under the inner tx hash.
-  Live-verified on `otigen devnet`: plaintext receipt lands in ~12 waves
-  on the single-validator devnet.
+- `examples/private_transfer.rs` — end-to-end round-trip of the
+  private mempool path via `send_private`. Signs a Tx, commits under
+  `commitment_hash`, waits the commit-reveal window, reveals, and waits
+  for the receipt under the inner tx hash. Run with
+  `cargo run --example private_transfer`.
+  Live-verified on `otigen devnet`: inner receipt lands on the
+  single-validator devnet.
 - `RetryConfig` for `HttpTransport` — exponential backoff with jitter
   on transient failures (connection refused, TCP/TLS errors, HTTP 5xx,
   HTTP 429). Default: 3 retries, 100 ms base, 5 s cap, ±25% jitter.
@@ -111,8 +120,8 @@ pre-1.0 may have breaking changes at any minor bump (see
   manually.
 - Test coverage grew from 163 unit / 114 integration in 0.1.0 to
   170 unit / 139 integration in this release (revert-reason
-  plumbing, FeeData rework, encrypted-tx serialisation,
-  snapshot/manifest, hard-finality cert, threshold-pubkey,
+  plumbing, FeeData rework, commit-reveal payload serialisation,
+  snapshot/manifest, hard-finality cert, private-send flow,
   retry-policy, structured Receipt accessors).
 - Crates.io metadata: `homepage`, `documentation`, `readme`,
   `keywords` (`blockchain`, `pyde`, `post-quantum`, `falcon`,
@@ -121,6 +130,20 @@ pre-1.0 may have breaking changes at any minor bump (see
   now carry paired `version` requirements so `cargo publish`
   accepts the manifest — actual publish still blocked on the
   upstream deps shipping to crates.io.
+
+### Removed
+- **Breaking**: Threshold-encryption submission surface, superseded by
+  the commit-reveal private mempool above. The engine physically
+  deleted the threshold lane, so these no longer exist client-side:
+  - `Provider::send_raw_encrypted_transaction` /
+    `pyde_sendRawEncryptedTransaction`.
+  - `Provider::get_threshold_public_key` / `pyde_getThresholdPublicKey`.
+  - Types `EncryptedTxEnvelope` and `ThresholdPublicKey` (there is no
+    key to fetch under commit-reveal).
+  - `examples/encrypted_transfer.rs` (replaced by
+    `examples/private_transfer.rs`).
+  Migrate encrypted submits to `RootProvider::send_private` (or the
+  `TxBuilder::commit` / `TxBuilder::reveal` split-phase builders).
 
 ### Changed
 - **Breaking**: Reworked `FeeData` struct: dropped the `gas_price`

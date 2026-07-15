@@ -35,7 +35,7 @@ suite fails before the drift hits production.
 | SDK type | Engine type | Pin |
 |---|---|---|
 | `Tx` | `pyde_engine_types::Tx` | Field order matches Ch 11 §11.6 verbatim. |
-| `TxType` | `pyde_engine_types::TxType` | 16 variants, tags `0x00`–`0x10` (`0x02` reserved gap). |
+| `TxType` | `pyde_engine_types::TxType` | 18 variants, tags `0x00`–`0x10` (`0x02` reserved gap) plus `Commit` (`0x11`) / `Reveal` (`0x12`). |
 | `AuthKeys` | `pyde_engine_types::AuthKeys` | 4 variants, tags `0x00`–`0x03`. |
 | `FeePayer` | `pyde_engine_types::FeePayer` | 3 variants, tags `0x00`–`0x02`. |
 | `AccessEntry` | `pyde_engine_types::AccessEntry` | Field order: `address`, `storage_keys`, `access_type`. |
@@ -49,8 +49,8 @@ suite fails before the drift hits production.
 | `RevertReason` | `pyde_engine_types::RevertReason` | JSON struct with field order `category`, `message` (named fields — JSON field order doesn't affect decode). |
 | `RevertCategory` | `pyde_engine_types::RevertCategory` | JSON enum: variants serialise verbatim as `"EngineValidation"`, `"Contract"`, `"Vm"`. Forward-compat `Other(String)` is `#[serde(untagged)]` — unknown strings round-trip as a bare string. |
 | `Event` | `pyde_engine_types::Event` | Hex-string fields throughout (JSON-RPC convention). |
-| `ThresholdPublicKey` | `pyde_engine_types::ThresholdPublicKey` | `pyde_getThresholdPublicKey` result. Fields: `epoch` (hex string), `scheme` (`"mock"` or `"kyber-768"`), `public_key` (hex string). Per-epoch — caller refreshes per encrypted submit. |
-| `EncryptedTxEnvelope` (input to `pyde_sendRawEncryptedTransaction`) | `pyde_engine_types::EncryptedTxEnvelope` | Borsh: 1-byte version + `Vec<u8>` ciphertext. SDK ships hex-encoded; v1 size limits 1213-byte min, 128-KiB max (engine-enforced at admit). |
+| `CommitPayload` | `pyde_engine_types::CommitPayload` | `tx.data` of a `Commit` (`TxType` `0x11`). Field order: `commitment` (`[u8; 32]`) ‖ `value_ceiling` (`u128`). `tx.value` equals `required_bond(value_ceiling)`. |
+| `RevealPayload` | `pyde_engine_types::RevealPayload` | `tx.data` of a `Reveal` (`TxType` `0x12`). Field order: `commitment` (`[u8; 32]`) ‖ `nonce` (`[u8; 32]`) ‖ `inner_tx` (`Vec<u8>`). Both submitted via `pyde_sendRawTransaction`. |
 
 ### Tx canonical hash
 

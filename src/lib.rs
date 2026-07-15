@@ -72,14 +72,17 @@ pub mod ws;
 
 pub use contract::{pyde_abi, Contract, DecodedEvent};
 pub use error::{Result, SdkError};
-pub use provider::{HttpProvider, HttpTransport, PendingTx, Provider, RootProvider, Transport};
+pub use provider::{
+    HttpProvider, HttpTransport, PendingTx, PrivateSendHandle, Provider, RootProvider, Transport,
+};
 pub use signer::{LocalSigner, Signer};
 pub use tx::TxBuilder;
 pub use types::{
     AccessEntry, AccessType, AccountInfo, AccountType, Address, AuthKeys, CallOverrides,
-    CallPayload, CallRequest, Event, EventFilter, FalconPubkey, FalconSignature, FeeData, FeePayer,
-    Log, LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, RecentWaveSummary,
-    RevertCategory, RevertReason, SimulationResult, ThresholdPublicKey, Tx, TxHash, TxType,
+    CallPayload, CallRequest, CommitPayload, Event, EventFilter, FalconPubkey, FalconSignature,
+    FeeData, FeePayer, Log, LogCursor, LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus,
+    RecentWaveSummary, RevealPayload, RevertCategory, RevertReason, SimulationResult, Tx, TxHash,
+    TxType,
 };
 pub use wallet::{Keystore, Wallet};
 pub use ws::{Subscription, WsProvider, WsTransport};

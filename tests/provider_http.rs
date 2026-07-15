@@ -817,69 +817,7 @@ async fn get_snapshot_manifest_returns_value() {
     assert_eq!(v["chunk_count"], 4);
 }
 
-// ── T27: encrypted-mempool + finality + threshold-pk ─────────────
-
-#[tokio::test]
-async fn get_threshold_public_key_decodes_engine_shape() {
-    let (provider, server) = provider_with_server().await;
-    Mock::given(method("POST"))
-        .and(match_method("pyde_getThresholdPublicKey"))
-        .respond_with(ok_response(json!({
-            "epoch": "0x0",
-            "scheme": "mock",
-            "public_key": "0xdeadbeef"
-        })))
-        .mount(&server)
-        .await;
-    let pk = provider.get_threshold_public_key().await.unwrap().unwrap();
-    assert_eq!(pk.epoch, "0x0");
-    assert_eq!(pk.scheme, "mock");
-    assert_eq!(pk.public_key, "0xdeadbeef");
-}
-
-#[tokio::test]
-async fn get_threshold_public_key_handles_null() {
-    let (provider, server) = provider_with_server().await;
-    Mock::given(method("POST"))
-        .and(match_method("pyde_getThresholdPublicKey"))
-        .respond_with(ok_response(Value::Null))
-        .mount(&server)
-        .await;
-    assert!(provider.get_threshold_public_key().await.unwrap().is_none());
-}
-
-#[tokio::test]
-async fn send_raw_encrypted_transaction_decodes_tx_hash() {
-    let (provider, server) = provider_with_server().await;
-    let expected = format!("0x{}", "cc".repeat(32));
-    Mock::given(method("POST"))
-        .and(match_method("pyde_sendRawEncryptedTransaction"))
-        .respond_with(ok_response(json!(expected)))
-        .mount(&server)
-        .await;
-    let h = provider
-        .send_raw_encrypted_transaction("0xaabbccddeeff")
-        .await
-        .unwrap();
-    assert_eq!(h.as_bytes(), &[0xCC; 32]);
-}
-
-#[tokio::test]
-async fn send_raw_encrypted_transaction_accepts_bare_hex() {
-    // No 0x prefix on the envelope arg — handler should add it.
-    let (provider, server) = provider_with_server().await;
-    let expected = format!("0x{}", "dd".repeat(32));
-    Mock::given(method("POST"))
-        .and(match_method("pyde_sendRawEncryptedTransaction"))
-        .respond_with(ok_response(json!(expected)))
-        .mount(&server)
-        .await;
-    let h = provider
-        .send_raw_encrypted_transaction("aabbccddeeff")
-        .await
-        .unwrap();
-    assert_eq!(h.as_bytes(), &[0xDD; 32]);
-}
+// ── T27: finality cert ───────────────────────────────────────────
 
 #[tokio::test]
 async fn get_hard_finality_cert_returns_value() {

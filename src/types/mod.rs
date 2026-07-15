@@ -22,7 +22,7 @@
 //!   `LogPage` / `LogCursor` / `EventFilter`, `AccountInfo`, `NodeInfo`,
 //!   `CallRequest` / `CallOverrides`, `FeeData` / `RecentWaveSummary`,
 //!   `SimulationResult` / `SimulationReceipt` / `SimulationAccessList`
-//!   / `SimulationRead` / `SimulationReadVersion`, `ThresholdPublicKey`.
+//!   / `SimulationRead` / `SimulationReadVersion`.
 
 pub mod abi;
 pub mod account;
@@ -60,10 +60,10 @@ pub use rpc::{
     AccountInfo, CallOverrides, CallRequest, Event, EventFilter, FeeData, Log, LogCursor,
     LogFilter, LogPage, NodeInfo, Receipt, ReceiptStatus, RecentWaveSummary, RevertCategory,
     RevertReason, SimulationAccessList, SimulationRead, SimulationReadVersion, SimulationReceipt,
-    SimulationResult, ThresholdPublicKey,
+    SimulationResult,
 };
 pub use state_schema::{FieldKind, ScalarType, StateField, StateSchema};
 pub use tx_types::{
-    AccessEntry, AccessType, CallPayload, DeployData, EncryptedTxEnvelope, FeePayer, FeeQuanta,
-    Gas, GasUsed, Tx, TxType, MAX_CALLDATA, MAX_TX_SIZE, MIN_GAS_LIMIT,
+    AccessEntry, AccessType, CallPayload, CommitPayload, DeployData, FeePayer, FeeQuanta, Gas,
+    GasUsed, RevealPayload, Tx, TxType, MAX_CALLDATA, MAX_TX_SIZE, MIN_GAS_LIMIT,
 };

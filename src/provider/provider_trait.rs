@@ -1,6 +1,6 @@
 //! The [`Provider`] trait + the concrete [`RootProvider`] dispatcher.
 //!
-//! All 28 RPC methods the engine exposes today, plus convenience
+//! All 26 RPC methods the engine exposes today, plus convenience
 //! sugar for typed Borsh payloads and PYDE↔quanta conversion at
 //! the SDK boundary.
 
@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::error::SdkError;
 use crate::types::{
     AccountInfo, Address, CallRequest, Event, EventFilter, FeeData, LogFilter, LogPage, NodeInfo,
-    Receipt, RecentWaveSummary, SimulationResult, ThresholdPublicKey, Tx, TxHash,
+    Receipt, RecentWaveSummary, SimulationResult, Tx, TxHash,
 };
 
 use super::pending::PendingTx;
@@ -119,36 +119,6 @@ pub trait Provider: Send + Sync {
     /// bytes, and submits. Returns the engine-computed [`TxHash`].
     async fn send_raw_transaction(&self, tx: &Tx) -> Result<TxHash, SdkError>;
 
-    /// `pyde_sendRawEncryptedTransaction` — submit a threshold-encrypted
-    /// transaction envelope for MEV protection.
-    ///
-    /// The caller must first encrypt a plaintext `Tx` under the
-    /// chain's current threshold pubkey (from
-    /// [`Self::get_threshold_public_key`]) and produce a borsh-encoded
-    /// `EncryptedTxEnvelope` (version byte + ciphertext). This method
-    /// takes that envelope as hex.
-    ///
-    /// Returns the 32-byte Blake3 envelope hash. **NOT** the inner
-    /// `tx_hash` — that lives on the plaintext and is only knowable
-    /// post-decryption. Receipts go under the plaintext hash; use
-    /// `pyde_getReceipt` polling on it.
-    ///
-    /// v1 mock-DKG warning: if [`Self::get_threshold_public_key`]
-    /// reports `scheme: "mock"`, submitted envelopes won't be
-    /// processed until real Kyber-768 crypto lands. Use
-    /// [`ThresholdPublicKey::is_real`] to gate on the encrypted
-    /// path being live — it accepts both `"kyber-768"` and
-    /// `"kyber-768-goldilocks"` (the current live-engine scheme).
-    ///
-    /// Size limits (engine v1): min 1213 bytes, max 128 KiB.
-    ///
-    /// # Errors
-    /// - `InvalidArgument` for hex / borsh decode failures.
-    /// - `Rpc` for mempool admission failures
-    ///   (`AlreadyKnown`, `PoolFull`, `UnsupportedVersion`,
-    ///   `CiphertextTooSmall`, `CiphertextTooLarge`).
-    async fn send_raw_encrypted_transaction(&self, envelope_hex: &str) -> Result<TxHash, SdkError>;
-
     /// `pyde_call` — read-only contract view call.
     ///
     /// Returns the contract's `pyde::return(...)` bytes. Use the
@@ -238,23 +208,6 @@ pub trait Provider: Send + Sync {
     /// `wave_id` is sent as a bare JSON number on the wire (not
     /// hex string) — engine quirk shared with `pyde_getWave`.
     async fn get_hard_finality_cert(&self, wave_id: u64) -> Result<Option<Value>, SdkError>;
-
-    /// `pyde_getThresholdPublicKey` — threshold-decryption pubkey
-    /// for the encrypted-mempool path.
-    ///
-    /// Wallets encrypt a plaintext `Tx` under `result.public_key`
-    /// before submitting via
-    /// [`Self::send_raw_encrypted_transaction`]. Per-epoch — refresh
-    /// per encrypted submit (cheap, no consensus round-trip).
-    ///
-    /// Returns `None` if no DKG ceremony has run yet. v1 boot
-    /// writes a deterministic mock pubkey (`scheme: "mock"`) so
-    /// the encrypted-mempool path is reachable from the first
-    /// wave; real Kyber-768 crypto overwrites it at the per-epoch
-    /// combine. Use [`ThresholdPublicKey::is_real`] to detect the
-    /// live path — it returns `true` for both `"kyber-768"` and
-    /// `"kyber-768-goldilocks"`, and `false` for `"mock"`.
-    async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError>;
 
     // ── Events ──────────────────────────────────────────────────
 
@@ -447,19 +400,6 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
         decode_tx_hash_from_value(&v, "send_raw_transaction")
     }
 
-    async fn send_raw_encrypted_transaction(&self, envelope_hex: &str) -> Result<TxHash, SdkError> {
-        let payload = if envelope_hex.starts_with("0x") {
-            envelope_hex.to_string()
-        } else {
-            format!("0x{envelope_hex}")
-        };
-        let v = self
-            .transport
-            .send("pyde_sendRawEncryptedTransaction", json!([payload]))
-            .await?;
-        decode_tx_hash_from_value(&v, "send_raw_encrypted_transaction")
-    }
-
     async fn call(&self, req: &CallRequest) -> Result<Vec<u8>, SdkError> {
         let v = self.transport.send("pyde_call", json!([req])).await?;
         decode_hex_bytes(&v, "call")
@@ -624,19 +564,6 @@ impl<T: Transport + 'static> Provider for RootProvider<T> {
         Ok(Some(v))
     }
 
-    async fn get_threshold_public_key(&self) -> Result<Option<ThresholdPublicKey>, SdkError> {
-        let v = self
-            .transport
-            .send("pyde_getThresholdPublicKey", json!([]))
-            .await?;
-        if v.is_null() {
-            return Ok(None);
-        }
-        serde_json::from_value(v)
-            .map(Some)
-            .map_err(|e| SdkError::InvalidResponse(format!("get_threshold_public_key: {e}")))
-    }
-
     async fn get_events(&self, filter: &EventFilter) -> Result<Vec<Event>, SdkError> {
         let v = self
             .transport
@@ -714,7 +641,7 @@ fn decode_hex_bytes(v: &Value, ctx: &str) -> Result<Vec<u8>, SdkError> {
 }
 
 /// Decode an RPC response that's a 32-byte hex string into a [`TxHash`].
-/// Used by both `send_raw_transaction` and `send_raw_encrypted_transaction`.
+/// Used by `send_raw_transaction`.
 fn decode_tx_hash_from_value(v: &Value, ctx: &str) -> Result<TxHash, SdkError> {
     let s = v
         .as_str()
