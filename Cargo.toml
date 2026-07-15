@@ -18,7 +18,7 @@ categories = ["cryptography", "api-bindings", "asynchronous"]
 
 [dependencies]
 # ── Crypto (sibling path-dep per pyde-net convention) ─────────────────
-# FALCON-512 signatures, Poseidon2 hashing, Blake3, Kyber-768.
+# FALCON-512 signatures, Poseidon2 hashing, Blake3.
 # `path` resolves locally during dev; `version` is what cargo
 # publishes against once pyde-crypto ships to crates.io. Both forms
 # must coexist so `cargo publish` accepts the manifest.

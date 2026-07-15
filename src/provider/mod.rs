@@ -24,11 +24,13 @@
 
 pub mod json_rpc;
 pub mod pending;
+pub mod private;
 pub mod provider_trait;
 pub mod transport;
 
 pub use json_rpc::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 pub use pending::{PendingTx, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT};
+pub use private::PrivateSendHandle;
 pub use provider_trait::{Provider, RootProvider};
 pub use transport::{HttpTransport, RetryConfig, Transport};
 

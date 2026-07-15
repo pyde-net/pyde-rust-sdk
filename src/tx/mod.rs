@@ -26,7 +26,73 @@ use borsh::BorshDeserialize;
 use pyde_crypto::poseidon2::poseidon2_hash;
 
 use crate::error::SdkError;
-use crate::types::{AccessEntry, Address, FalconSignature, FeePayer, Gas, Tx, TxHash, TxType};
+use crate::types::{
+    AccessEntry, Address, CommitPayload, FalconSignature, FeePayer, Gas, RevealPayload, Tx, TxHash,
+    TxType,
+};
+
+// ── Commit-reveal private mempool ──────────────────────────────
+
+/// Domain-separation tag for [`commitment_hash`]. Baked into every
+/// commitment so a commit-reveal preimage can never collide with any
+/// other Blake3 use in the protocol. Wire-frozen — mirrors
+/// `engine/crates/types/src/tx.rs::COMMITMENT_DOMAIN_TAG`.
+pub const COMMITMENT_DOMAIN_TAG: &[u8] = b"pyde-commit-reveal-v1";
+
+/// Reveal window in waves (~60 s at 500 ms waves). A commit's matching
+/// reveal must land in wave `W'` with `commit_wave < W' <= commit_wave
+/// + COMMIT_REVEAL_WINDOW_WAVES`, else the slot expires and the bond is
+/// forfeit. This is a liveness/censorship cushion, not the happy path —
+/// honest wallets auto-reveal the moment the commit finalises (~1-2 s).
+/// Mirrors the engine's `COMMIT_REVEAL_WINDOW_WAVES`.
+pub const COMMIT_REVEAL_WINDOW_WAVES: u64 = 120;
+
+/// Flat bond floor in quanta (1 PYDE = 10⁹ quanta). Prices commit-spam:
+/// reserving a slot and never revealing forfeits at least this much.
+/// Mirrors the engine's `MIN_COMMIT_BOND`.
+pub const MIN_COMMIT_BOND: u128 = 1_000_000_000;
+
+/// Bond scaling in basis points of the declared `value_ceiling`
+/// (100 bps = 1%). Mirrors the engine's `COMMIT_BOND_BPS`.
+pub const COMMIT_BOND_BPS: u128 = 100;
+
+/// Canonical commit-reveal commitment:
+/// `Blake3(COMMITMENT_DOMAIN_TAG || inner_tx_bytes || nonce)`.
+///
+/// `inner_tx_bytes` is the Borsh encoding of the hidden [`Tx`] — the
+/// SAME bytes you place in [`RevealPayload::inner_tx`]. Encode the
+/// signed inner tx exactly once and reuse those bytes for both the
+/// hash and the reveal payload; re-encoding risks a byte drift that
+/// makes the reveal's recomputed hash mismatch and get rejected.
+///
+/// `nonce` is 32 bytes of sender-chosen randomness — the salt that
+/// makes the commitment hiding. It MUST come from a CSPRNG and MUST
+/// NOT be reused across commitments.
+///
+/// Byte-identical to `engine/crates/types/src/tx.rs::commitment_hash`.
+#[must_use]
+pub fn commitment_hash(inner_tx_bytes: &[u8], nonce: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(COMMITMENT_DOMAIN_TAG);
+    hasher.update(inner_tx_bytes);
+    hasher.update(nonce);
+    *hasher.finalize().as_bytes()
+}
+
+/// Minimum bond a `Commit` must post for a declared value ceiling:
+/// `max(MIN_COMMIT_BOND, value_ceiling × COMMIT_BOND_BPS / 10_000)`.
+///
+/// The Commit tx sets `tx.value = required_bond(value_ceiling)`. The
+/// bond is refunded when the matching Reveal is accepted, and burned
+/// if the commit is never revealed inside the window. Byte-identical
+/// to `engine/crates/tx/src/commit_reveal.rs::required_bond`.
+#[must_use]
+pub fn required_bond(value_ceiling: u128) -> u128 {
+    let scaled = value_ceiling
+        .saturating_mul(COMMIT_BOND_BPS)
+        .saturating_div(10_000);
+    scaled.max(MIN_COMMIT_BOND)
+}
 
 // ── Canonical hash ─────────────────────────────────────────────
 
@@ -165,6 +231,8 @@ fn tx_type_tag(t: &TxType) -> u8 {
         TxType::Unjail => 0x0E,
         TxType::RotateValidatorKeys => 0x0F,
         TxType::DisputeSlash => 0x10,
+        TxType::Commit => 0x11,
+        TxType::Reveal => 0x12,
         // 0x02 — Batch was removed pre-mainnet; tag intentionally vacant.
     }
 }
@@ -418,6 +486,64 @@ impl TxBuilder {
             .data(data))
     }
 
+    /// Configure this builder as a commit-reveal **Commit** (phase 1).
+    ///
+    /// Sets `tx_type = Commit`, `to = Address::ZERO`, `value =`
+    /// [`required_bond`]`(value_ceiling)`, and `data = borsh(`[`CommitPayload`]`)`.
+    /// The `commitment` is [`commitment_hash`]`(borsh(inner_tx), nonce)`.
+    ///
+    /// For the one-call flow that builds, submits, and auto-reveals,
+    /// prefer [`crate::RootProvider::send_private`]. Use this builder
+    /// directly only when splitting the two phases (e.g. a relay that
+    /// reveals on someone else's behalf).
+    ///
+    /// # Errors
+    /// Returns [`SdkError::Other`] if Borsh encoding fails.
+    pub fn commit(self, commitment: [u8; 32], value_ceiling: u128) -> Result<Self, SdkError> {
+        let data = borsh::to_vec(&CommitPayload {
+            commitment,
+            value_ceiling,
+        })
+        .map_err(|e| SdkError::Other(format!("borsh encode CommitPayload: {e}")))?;
+        Ok(self
+            .tx_type(TxType::Commit)
+            .to(Address::ZERO)
+            .value(required_bond(value_ceiling))
+            .data(data))
+    }
+
+    /// Configure this builder as a commit-reveal **Reveal** (phase 2).
+    ///
+    /// Sets `tx_type = Reveal`, `to = Address::ZERO`, `value = 0`, and
+    /// `data = borsh(`[`RevealPayload`]`)`. `inner_tx_bytes` MUST be the
+    /// exact `borsh(inner_tx)` bytes that were hashed into `commitment`
+    /// — re-encoding risks a byte drift that makes the engine's
+    /// recomputed hash mismatch and reject the reveal.
+    ///
+    /// Any account may submit the reveal (the preimage is the
+    /// authorisation), so this is relay-friendly.
+    ///
+    /// # Errors
+    /// Returns [`SdkError::Other`] if Borsh encoding fails.
+    pub fn reveal(
+        self,
+        commitment: [u8; 32],
+        nonce: [u8; 32],
+        inner_tx_bytes: Vec<u8>,
+    ) -> Result<Self, SdkError> {
+        let data = borsh::to_vec(&RevealPayload {
+            commitment,
+            nonce,
+            inner_tx: inner_tx_bytes,
+        })
+        .map_err(|e| SdkError::Other(format!("borsh encode RevealPayload: {e}")))?;
+        Ok(self
+            .tx_type(TxType::Reveal)
+            .to(Address::ZERO)
+            .value(0)
+            .data(data))
+    }
+
     /// Build an unsigned [`Tx`].
     ///
     /// # Errors
@@ -638,6 +764,8 @@ mod tests {
             Unjail,
             RotateValidatorKeys,
             DisputeSlash,
+            Commit,
+            Reveal,
         ];
         let mut seen = std::collections::HashSet::new();
         for ty in variants {
@@ -646,7 +774,7 @@ mod tests {
             let h = tx_hash(&tx);
             assert!(seen.insert(h), "collision at TxType::{ty:?}");
         }
-        assert_eq!(seen.len(), 16);
+        assert_eq!(seen.len(), 18);
     }
 
     // ── codec round-trip ────────────────────────────────────────
@@ -736,5 +864,84 @@ mod tests {
         assert_eq!(tx.tx_type, TxType::Standard);
         assert_eq!(tx.to, contract);
         assert_eq!(tx.data, calldata);
+    }
+
+    // ── commit-reveal ──────────────────────────────────────────
+
+    #[test]
+    fn commitment_hash_is_salted_and_deterministic() {
+        let inner = b"borsh-inner-tx-bytes";
+        let nonce_a = [0x11u8; 32];
+        let nonce_b = [0x22u8; 32];
+        // Deterministic for the same (bytes, nonce).
+        assert_eq!(
+            commitment_hash(inner, &nonce_a),
+            commitment_hash(inner, &nonce_a)
+        );
+        // Salt changes the commitment.
+        assert_ne!(
+            commitment_hash(inner, &nonce_a),
+            commitment_hash(inner, &nonce_b)
+        );
+        // Different inner bytes change the commitment.
+        assert_ne!(
+            commitment_hash(b"other", &nonce_a),
+            commitment_hash(inner, &nonce_a)
+        );
+    }
+
+    #[test]
+    fn required_bond_floors_and_scales() {
+        assert_eq!(required_bond(0), MIN_COMMIT_BOND);
+        assert_eq!(required_bond(1_000), MIN_COMMIT_BOND);
+        let crossover = MIN_COMMIT_BOND * 10_000 / COMMIT_BOND_BPS;
+        assert_eq!(required_bond(crossover), MIN_COMMIT_BOND);
+        assert_eq!(required_bond(crossover * 10), MIN_COMMIT_BOND * 10);
+        // Saturates rather than overflowing on pathological input.
+        let _ = required_bond(u128::MAX);
+    }
+
+    #[test]
+    fn builder_commit_helper() {
+        let pk = FalconPubkey::new([0xAB; FALCON_PUBKEY_LEN]);
+        let from = Address::from_pubkey(&pk);
+        let commitment = [0xCC; 32];
+        let ceiling = 5_000_000_000u128;
+        let tx = TxBuilder::new()
+            .from(from)
+            .commit(commitment, ceiling)
+            .unwrap()
+            .gas_limit(200_000)
+            .build()
+            .unwrap();
+        assert_eq!(tx.tx_type, TxType::Commit);
+        assert!(tx.to.is_zero());
+        assert_eq!(tx.value, required_bond(ceiling));
+        let decoded: crate::types::CommitPayload = borsh::from_slice(&tx.data).unwrap();
+        assert_eq!(decoded.commitment, commitment);
+        assert_eq!(decoded.value_ceiling, ceiling);
+    }
+
+    #[test]
+    fn builder_reveal_helper() {
+        let pk = FalconPubkey::new([0xAB; FALCON_PUBKEY_LEN]);
+        let from = Address::from_pubkey(&pk);
+        let commitment = [0xCC; 32];
+        let nonce = [0x5A; 32];
+        let inner_bytes = vec![1, 2, 3, 4, 5];
+        let tx = TxBuilder::new()
+            .from(from)
+            .reveal(commitment, nonce, inner_bytes.clone())
+            .unwrap()
+            .gas_limit(5_000_000)
+            .build()
+            .unwrap();
+        assert_eq!(tx.tx_type, TxType::Reveal);
+        assert!(tx.to.is_zero());
+        assert_eq!(tx.value, 0);
+        let decoded: crate::types::RevealPayload = borsh::from_slice(&tx.data).unwrap();
+        assert_eq!(decoded.commitment, commitment);
+        assert_eq!(decoded.nonce, nonce);
+        assert_eq!(decoded.inner_tx, inner_bytes);
     }
 }

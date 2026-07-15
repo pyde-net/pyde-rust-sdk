@@ -16,14 +16,15 @@ the spec moves.
 - [14.3 Gas constants](#143-gas-constants)
 - [14.4 Keystore parameters](#144-keystore-parameters)
 - [14.5 Codec caps](#145-codec-caps)
-- [14.6 Pending tx defaults](#146-pending-tx-defaults)
-- [14.7 Multisig domain bytes](#147-multisig-domain-bytes)
-- [14.8 Error codes (HOST_FN_ABI §4)](#148-error-codes-host_fn_abi-4)
-- [14.9 ABI versions](#149-abi-versions)
-- [14.10 Function attribute bits](#1410-function-attribute-bits)
-- [14.11 Nonce window + multisig caps](#1411-nonce-window--multisig-caps)
-- [14.12 PYDE units](#1412-pyde-units)
-- [14.13 JSON-RPC version](#1413-json-rpc-version)
+- [14.6 Commit-reveal constants](#146-commit-reveal-constants)
+- [14.7 Pending tx defaults](#147-pending-tx-defaults)
+- [14.8 Multisig domain bytes](#148-multisig-domain-bytes)
+- [14.9 Error codes (HOST_FN_ABI §4)](#149-error-codes-host_fn_abi-4)
+- [14.10 ABI versions](#1410-abi-versions)
+- [14.11 Function attribute bits](#1411-function-attribute-bits)
+- [14.12 Nonce window + multisig caps](#1412-nonce-window--multisig-caps)
+- [14.13 PYDE units](#1413-pyde-units)
+- [14.14 JSON-RPC version](#1414-json-rpc-version)
 
 ---
 
@@ -160,27 +161,40 @@ knowing:
 | Max concurrent subscriptions per transport | `128` | 129th subscription is dropped. |
 | Max queued events per subscription | `256` | Events past this cap drop the slowest reader. |
 
-### Engine-side encrypted-mempool size limits
+---
 
-The chain rejects `pyde_sendRawEncryptedTransaction` envelopes
-outside these bounds. The SDK doesn't enforce them client-side
-(no point — wire would still fail) but documents them so
-wallet code can pre-validate:
+## 14.6 Commit-reveal constants
 
-| Cap | Value | What |
+In `crate::tx`. These govern the private mempool's commit-reveal
+lane — the MEV protection where a transaction's ordering position
+is fixed before its contents are visible.
+
+| Constant | Value | What |
 |---|---|---|
-| Min ciphertext | `1213` bytes | Kyber-768 KEM ciphertext + ChaCha20-Poly1305 AEAD + 1-byte inner-Tx floor. Anything below this is structurally invalid. |
-| Max ciphertext | `128 KiB` | Engine v1 cap. Plaintext `Tx` is well under this; the limit protects against malformed envelopes blowing the mempool. |
+| `COMMIT_REVEAL_WINDOW_WAVES` | `120` | Waves the chain allows between a `Commit` landing and its matching `Reveal`. Reveal past this window forfeits the bond. |
+| `MIN_COMMIT_BOND` | `1_000_000_000` | Floor bond a `Commit` must post, in quanta (1 PYDE). `required_bond` never returns less than this. |
+| `COMMIT_BOND_BPS` | `100` | Bond rate in basis points (1%) applied to a commit's `value_ceiling`; the bond is `max(MIN_COMMIT_BOND, value_ceiling * COMMIT_BOND_BPS / 10_000)`. |
 
-Submission outside the range surfaces as `SdkError::Rpc`
-carrying the engine's `EncryptedAdmissionError` variant
-(`CiphertextTooSmall` / `CiphertextTooLarge`). See
-[Providers §6.3 `send_raw_encrypted_transaction`](06-providers.md#send_raw_encrypted_transactionenvelope_hex)
-for the full error list.
+```rust,no_run
+use pyde_rust_sdk::tx::{COMMIT_BOND_BPS, COMMIT_REVEAL_WINDOW_WAVES, MIN_COMMIT_BOND, required_bond};
+
+# fn run() {
+assert_eq!(COMMIT_REVEAL_WINDOW_WAVES, 120);
+assert_eq!(MIN_COMMIT_BOND, 1_000_000_000); // 1 PYDE
+assert_eq!(COMMIT_BOND_BPS, 100);           // 1%
+assert_eq!(required_bond(0), MIN_COMMIT_BOND);
+# }
+```
+
+The `Commit` tx (`TxType::Commit = 0x11`) carries a
+`CommitPayload` in `tx.data` and posts `required_bond(value_ceiling)`
+as `tx.value`; the later `Reveal` tx (`TxType::Reveal = 0x12`)
+carries a `RevealPayload`. See [Providers §6.3](06-providers.md)
+for `send_private` and the one-call flow.
 
 ---
 
-## 14.6 Pending tx defaults
+## 14.7 Pending tx defaults
 
 In `crate::provider::pending`:
 
@@ -217,7 +231,7 @@ let receipt = provider
 
 ---
 
-## 14.7 Multisig domain bytes
+## 14.8 Multisig domain bytes
 
 In `crate::multisig`:
 
@@ -252,7 +266,7 @@ See [Multisig §10.1](10-multisig.md#101-the-canonical-message).
 
 ---
 
-## 14.8 Error codes (HOST_FN_ABI §4)
+## 14.9 Error codes (HOST_FN_ABI §4)
 
 In `crate::types::error_code`:
 
@@ -289,7 +303,7 @@ See [Errors §9.3](09-errors.md#93-host_fn_abi-4-error-codes).
 
 ---
 
-## 14.9 ABI versions
+## 14.10 ABI versions
 
 In `crate::types::abi::ContractAbi`:
 
@@ -317,7 +331,7 @@ assert_eq!(ContractAbi::MAX_SUPPORTED, ContractAbi::V1_2);
 
 ---
 
-## 14.10 Function attribute bits
+## 14.11 Function attribute bits
 
 In `crate::types::FunctionAttrs`:
 
@@ -351,7 +365,7 @@ in `otigen.toml`.
 
 ---
 
-## 14.11 Nonce window + multisig caps
+## 14.12 Nonce window + multisig caps
 
 In `crate::types::account`:
 
@@ -374,7 +388,7 @@ and [Wallets §4.8](04-wallets.md#48-auth-keys).
 
 ---
 
-## 14.12 PYDE units
+## 14.13 PYDE units
 
 In `crate::util`:
 
@@ -396,7 +410,7 @@ See [Utilities §13.2](13-utilities.md#132-pyde--quanta-conversion).
 
 ---
 
-## 14.13 JSON-RPC version
+## 14.14 JSON-RPC version
 
 In `crate::provider::json_rpc`:
 
