@@ -115,7 +115,7 @@ Step-by-step explanation: [docs/02-quickstart.md](docs/02-quickstart.md).
 | [`examples/contract_typed.rs`](examples/contract_typed.rs) | Macro-generated typed wrapper |
 | [`examples/subscribe_logs.rs`](examples/subscribe_logs.rs) | Open WS, stream event logs |
 | [`examples/devnet_e2e.rs`](examples/devnet_e2e.rs) | Live devnet smoke test — chain info, transfer, deploy, view + send |
-| [`examples/nft_marketplace.rs`](examples/nft_marketplace.rs) | Multi-account, multi-contract orchestration — ERC20 + ERC721 + atomic-swap marketplace |
+| [`examples/nft_marketplace.rs`](examples/nft_marketplace.rs) | Multi-account, multi-contract orchestration — PTS-F token + PTS-N NFT + atomic-swap marketplace |
 | [`examples/halt_methods.rs`](examples/halt_methods.rs) | Every Pyde halt mode + structured error parsing |
 | [`examples/multisig_treasury.rs`](examples/multisig_treasury.rs) | 2-of-3 FALCON treasury spend |
 

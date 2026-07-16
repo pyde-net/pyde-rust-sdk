@@ -218,7 +218,7 @@ use pyde_rust_sdk::util::parse_units;
 // 9 decimals (PYDE)
 assert_eq!(parse_units("1.5", 9)?, 1_500_000_000);
 
-// 18 decimals (ERC20-style)
+// 18 decimals (an 18-decimal token)
 assert_eq!(parse_units("1.5", 18)?, 1_500_000_000_000_000_000);
 assert_eq!(parse_units("100", 18)?, 100_000_000_000_000_000_000);
 
@@ -244,7 +244,7 @@ use pyde_rust_sdk::util::format_units;
 // 9 decimals (PYDE)
 assert_eq!(format_units(1_500_000_000, 9), "1.5");
 
-// 18 decimals (ERC20-style)
+// 18 decimals (an 18-decimal token)
 assert_eq!(format_units(1_500_000_000_000_000_000, 18), "1.5");
 
 // 6 decimals (USDC-style)

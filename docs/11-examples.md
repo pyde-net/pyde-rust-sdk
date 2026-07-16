@@ -421,7 +421,7 @@ PYDE_RPC_URL=http://127.0.0.1:9933 cargo run --example nft_marketplace
 **What it does:**
 
 Multi-account, multi-contract orchestration. Deploys three
-contracts (ERC20 + ERC721 + a custom marketplace), funds three
+contracts (a PTS-F token + a PTS-N NFT + a custom marketplace), funds three
 accounts (seller, buyer, treasury), runs an atomic NFT swap +
 royalty payout end-to-end, asserts every balance moves correctly.
 
@@ -431,7 +431,7 @@ the SDK to "what a production integration test looks like."
 **Expected output (abbreviated):**
 ```
 deploying fungible-token at 0x...
-deploying erc721-nft at 0x...
+deploying nft-mkt at 0x...
 deploying marketplace at 0x...
 funding seller: 100 PYDE
 funding buyer:  100 PYDE
