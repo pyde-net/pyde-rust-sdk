@@ -137,7 +137,7 @@ async fn decode_event_unpacks_topics_and_data() {
         indexed_mask: 0b011, // from + to indexed; amount not
     };
     let topic0 = event_signature_topic(&ev_abi);
-    let contract = Contract::new(address, build_abi("erc20", vec![ev_abi]), provider);
+    let contract = Contract::new(address, build_abi("token", vec![ev_abi]), provider);
 
     let from_topic = [0xAA; 32];
     let to_topic = [0xBB; 32];

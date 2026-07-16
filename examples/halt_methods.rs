@@ -48,7 +48,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pyde_rust_sdk::constants::{GAS_DEPLOY, GAS_ERC20_CALL};
+use pyde_rust_sdk::constants::{GAS_DEPLOY, GAS_TOKEN_CALL};
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
 use pyde_rust_sdk::types::{ContractType, ErrorCode, RevertCategory, Tx};
 use pyde_rust_sdk::{
@@ -261,7 +261,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = send_tx(&provider, &dyn_provider, &deployer, chain_id, |b| {
         Ok(b.to(contract)
             .data(call_payload_u64_arg("admin_bump", 5))
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     explain("after admin_bump(5)", &receipt);
@@ -272,7 +272,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = send_tx(&provider, &dyn_provider, &stranger, chain_id, |b| {
         Ok(b.to(contract)
             .data(call_payload_u64_arg("admin_bump", 99))
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     explain("authorization revert", &receipt);
@@ -283,7 +283,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = send_tx(&provider, &dyn_provider, &stranger, chain_id, |b| {
         Ok(b.to(contract)
             .data(call_payload_no_args("cause_revert_with_message"))
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     explain("plain-message revert", &receipt);
@@ -293,7 +293,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = send_tx(&provider, &dyn_provider, &stranger, chain_id, |b| {
         Ok(b.to(contract)
             .data(call_payload_no_args("cause_revert_with_err_forbidden"))
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     explain("named-token revert (ERR_FORBIDDEN)", &receipt);
@@ -307,7 +307,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = send_tx(&provider, &dyn_provider, &stranger, chain_id, |b| {
         Ok(b.to(contract)
             .data(call_payload_no_args("cause_revert_with_negative_code"))
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     explain("integer-code revert (-5)", &receipt);
@@ -321,7 +321,7 @@ async fn main() -> anyhow::Result<()> {
     let receipt = send_tx(&provider, &dyn_provider, &stranger, chain_id, |b| {
         Ok(b.to(contract)
             .data(call_payload_no_args("cause_panic"))
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     explain("WASM trap", &receipt);

@@ -1,4 +1,4 @@
-//! Multi-account, multi-contract end-to-end demo: ERC20 + ERC721 +
+//! Multi-account, multi-contract end-to-end demo: a PTS-F token + a PTS-N NFT +
 //! a custom NFT marketplace, all deployed and orchestrated through
 //! the SDK.
 //!
@@ -7,26 +7,26 @@
 //! Three accounts:
 //!
 //! - **deployer** (devnet-0) — deploys all three contracts; holds
-//!   the initial ERC20 supply minted by the token's constructor.
+//!   the initial token supply minted by the token's constructor.
 //! - **seller** (devnet-1) — receives an NFT (minted by deployer
 //!   into seller's address), lists it for sale on the marketplace.
-//! - **buyer** (devnet-2) — receives ERC20 (transferred from
+//! - **buyer** (devnet-2) — receives tokens (transferred from
 //!   deployer), approves the marketplace, calls `buy` to atomically
 //!   swap payment for ownership.
 //!
 //! ## Pipeline
 //!
-//! 1. Deploy ERC20 — constructor mints 1_000_000 tokens to deployer.
-//! 2. Deploy ERC721 with `init(name, symbol)`.
-//! 3. Deploy marketplace with `init(erc20_addr, erc721_addr)`.
-//! 4. Deployer transfers 1000 ERC20 to buyer.
+//! 1. Deploy the fungible token — constructor mints 1_000_000 tokens to deployer.
+//! 2. Deploy the NFT with `init(name, symbol, max_supply)`.
+//! 3. Deploy marketplace with `init(token_addr, nft_addr)`.
+//! 4. Deployer transfers 1000 tokens to buyer.
 //! 5. Deployer mints NFT into seller's address.
 //! 6. Seller approves marketplace as the NFT's spender.
 //! 7. Seller `list_item(token_id, price)`.
-//! 8. Buyer approves marketplace to pull `price` ERC20.
+//! 8. Buyer approves marketplace to pull `price` tokens.
 //! 9. Buyer `buy(listing_id)` — marketplace cross-calls into both
 //!    contracts to atomically swap.
-//! 10. Verify final state: NFT owned by buyer, ERC20 balances
+//! 10. Verify final state: NFT owned by buyer, token balances
 //!     shifted, listing inactive.
 //!
 //! ## Prereqs
@@ -34,19 +34,19 @@
 //! Build the three contracts via otigen:
 //!
 //! ```sh
-//! otigen new erc20-mkt    --from erc20-token
-//! otigen new erc721-mkt   --from erc721-token
+//! otigen new token-mkt    --from fungible-token
+//! otigen new nft-mkt      --from nft-token
 //! # marketplace lives at otigen/examples/marketplace (or build your own)
-//! cd erc20-mkt   && otigen build
-//! cd erc721-mkt  && otigen build
+//! cd token-mkt   && otigen build
+//! cd nft-mkt  && otigen build
 //! cd marketplace && otigen build
 //! ```
 //!
 //! Then point the example at the three bundle paths:
 //!
 //! ```sh
-//! PYDE_ERC20_WASM=/tmp/erc20-mkt/artifacts/erc20-mkt.bundle/contract.wasm \
-//! PYDE_ERC721_WASM=/tmp/erc721-mkt/artifacts/erc721-mkt.bundle/contract.wasm \
+//! PYDE_the token_WASM=/tmp/token-mkt/artifacts/token-mkt.bundle/contract.wasm \
+//! PYDE_the NFT_WASM=/tmp/nft-mkt/artifacts/nft-mkt.bundle/contract.wasm \
 //! PYDE_MARKETPLACE_WASM=/tmp/nft-marketplace/artifacts/nft-marketplace.bundle/contract.wasm \
 //! cargo run --example nft_marketplace
 //! ```
@@ -62,7 +62,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pyde_rust_sdk::constants::{
-    GAS_CROSS_CALL_ORCHESTRATOR, GAS_DEPLOY, GAS_ERC20_CALL, GAS_ERC721_CALL,
+    GAS_CROSS_CALL_ORCHESTRATOR, GAS_DEPLOY, GAS_TOKEN_CALL, GAS_NFT_CALL,
 };
 use pyde_rust_sdk::contract::{decode_value, Contract};
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
@@ -197,8 +197,8 @@ async fn view_call<T: borsh::BorshDeserialize>(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let rpc_url = common::rpc_url();
-    let erc20_wasm_path = require_env("PYDE_ERC20_WASM")?;
-    let erc721_wasm_path = require_env("PYDE_ERC721_WASM")?;
+    let token_wasm_path = require_env("PYDE_the token_WASM")?;
+    let nft_wasm_path = require_env("PYDE_the NFT_WASM")?;
     let marketplace_wasm_path = require_env("PYDE_MARKETPLACE_WASM")?;
 
     let transport = HttpTransport::new(rpc_url.clone())?;
@@ -218,54 +218,54 @@ async fn main() -> anyhow::Result<()> {
     println!("  seller   = {}", seller.address());
     println!("  buyer    = {}", buyer.address());
 
-    // ── 1. Deploy ERC20 ──────────────────────────────────────
-    println!("\n[1] deploy ERC20");
-    let erc20_wasm = std::fs::read(&erc20_wasm_path)?;
-    let erc20_name = format!(
-        "erc20-{}",
+    // ── 1. Deploy the token ──────────────────────────────────────
+    println!("\n[1] deploy the token");
+    let token_wasm = std::fs::read(&token_wasm_path)?;
+    let token_name = format!(
+        "token-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos()
     );
-    let erc20_addr = deploy_contract(
+    let token_addr = deploy_contract(
         &provider,
         &dyn_provider,
         &deployer,
         chain_id,
-        &erc20_name,
-        erc20_wasm.clone(),
-        Vec::new(), // ERC20.init() takes no args
+        &token_name,
+        token_wasm.clone(),
+        Vec::new(), // the token.init() takes no args
     )
     .await?;
-    let erc20 = Contract::new(
-        erc20_addr,
-        abi::extract_abi(&erc20_wasm)?,
+    let token = Contract::new(
+        token_addr,
+        abi::extract_abi(&token_wasm)?,
         dyn_provider.clone(),
     );
 
-    // ── 2. Deploy ERC721 ─────────────────────────────────────
-    println!("\n[2] deploy ERC721");
-    let erc721_wasm = std::fs::read(&erc721_wasm_path)?;
-    let erc721_name = format!(
-        "erc721-{}",
+    // ── 2. Deploy the NFT ─────────────────────────────────────
+    println!("\n[2] deploy the NFT");
+    let nft_wasm = std::fs::read(&nft_wasm_path)?;
+    let nft_name = format!(
+        "nft-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos()
     );
-    let erc721_addr = deploy_contract(
+    let nft_addr = deploy_contract(
         &provider,
         &dyn_provider,
         &deployer,
         chain_id,
-        &erc721_name,
-        erc721_wasm.clone(),
+        &nft_name,
+        nft_wasm.clone(),
         // init(name: String, symbol: String) — calldata = borsh(name) || borsh(symbol)
         concat(&[&enc_string("PydeNFT"), &enc_string("PYD")]),
     )
     .await?;
-    let erc721 = Contract::new(
-        erc721_addr,
-        abi::extract_abi(&erc721_wasm)?,
+    let nft = Contract::new(
+        nft_addr,
+        abi::extract_abi(&nft_wasm)?,
         dyn_provider.clone(),
     );
 
@@ -285,7 +285,7 @@ async fn main() -> anyhow::Result<()> {
         chain_id,
         &marketplace_name,
         marketplace_wasm.clone(),
-        concat(&[&enc_address(&erc20_addr), &enc_address(&erc721_addr)]),
+        concat(&[&enc_address(&token_addr), &enc_address(&nft_addr)]),
     )
     .await?;
     let marketplace = Contract::new(
@@ -294,8 +294,8 @@ async fn main() -> anyhow::Result<()> {
         dyn_provider.clone(),
     );
 
-    // ── 4. Deployer → Buyer: 1000 ERC20 ─────────────────────
-    println!("\n[4] deployer transfers 1000 ERC20 → buyer");
+    // ── 4. Deployer → Buyer: 1000 the token ─────────────────────
+    println!("\n[4] deployer transfers 1000 the token → buyer");
     let _r = send_tx(&provider, &dyn_provider, &deployer, chain_id, |b| {
         let calldata = concat(&[&enc_address(&buyer.address()), &enc_u128(1000)]);
         let payload = pyde_rust_sdk::types::CallPayload {
@@ -303,18 +303,18 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc20.address()).data(data).gas_limit(GAS_ERC20_CALL))
+        Ok(b.to(token.address()).data(data).gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
 
     let buyer_balance_initial: u128 = view_call(
-        &erc20,
+        &token,
         "balance_of",
         enc_address(&buyer.address()),
         &ParamType::U128,
     )
     .await?;
-    println!("    buyer ERC20 balance: {buyer_balance_initial}");
+    println!("    buyer the token balance: {buyer_balance_initial}");
     anyhow::ensure!(buyer_balance_initial == 1000, "buyer should have 1000");
 
     // ── 5. Mint NFT into seller's address ───────────────────
@@ -326,7 +326,7 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc721.address()).data(data).gas_limit(GAS_ERC721_CALL))
+        Ok(b.to(nft.address()).data(data).gas_limit(GAS_NFT_CALL))
     })
     .await?;
     // mint() returns the new token_id as a u64.
@@ -340,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
     println!("    minted token_id = {token_id}");
 
     let owner: Address =
-        view_call(&erc721, "owner_of", enc_u64(token_id), &ParamType::Address).await?;
+        view_call(&nft, "owner_of", enc_u64(token_id), &ParamType::Address).await?;
     anyhow::ensure!(owner == seller.address(), "seller should own the NFT");
 
     // ── 6. Seller approves marketplace for the NFT ──────────
@@ -352,13 +352,13 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc721.address()).data(data).gas_limit(GAS_ERC20_CALL))
+        Ok(b.to(nft.address()).data(data).gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
 
     // ── 7. Seller lists the NFT ─────────────────────────────
     let price: u128 = 250;
-    println!("\n[7] seller lists NFT for {price} ERC20");
+    println!("\n[7] seller lists NFT for {price} the token");
     let list_receipt = send_tx(&provider, &dyn_provider, &seller, chain_id, |b| {
         let calldata = concat(&[&enc_u64(token_id), &enc_u128(price)]);
         let payload = pyde_rust_sdk::types::CallPayload {
@@ -368,7 +368,7 @@ async fn main() -> anyhow::Result<()> {
         let data = borsh::to_vec(&payload)?;
         Ok(b.to(marketplace.address())
             .data(data)
-            .gas_limit(GAS_ERC20_CALL))
+            .gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
     let listing_id = {
@@ -380,8 +380,8 @@ async fn main() -> anyhow::Result<()> {
     };
     println!("    listing_id = {listing_id}");
 
-    // ── 8. Buyer approves marketplace for ERC20 ─────────────
-    println!("\n[8] buyer approves marketplace for {price} ERC20");
+    // ── 8. Buyer approves marketplace for the token ─────────────
+    println!("\n[8] buyer approves marketplace for {price} the token");
     let _r = send_tx(&provider, &dyn_provider, &buyer, chain_id, |b| {
         let calldata = concat(&[&enc_address(&marketplace_addr), &enc_u128(price)]);
         let payload = pyde_rust_sdk::types::CallPayload {
@@ -389,7 +389,7 @@ async fn main() -> anyhow::Result<()> {
             calldata,
         };
         let data = borsh::to_vec(&payload)?;
-        Ok(b.to(erc20.address()).data(data).gas_limit(GAS_ERC20_CALL))
+        Ok(b.to(token.address()).data(data).gas_limit(GAS_TOKEN_CALL))
     })
     .await?;
 
@@ -417,26 +417,26 @@ async fn main() -> anyhow::Result<()> {
     println!("\n[10] final state");
 
     let new_owner: Address =
-        view_call(&erc721, "owner_of", enc_u64(token_id), &ParamType::Address).await?;
+        view_call(&nft, "owner_of", enc_u64(token_id), &ParamType::Address).await?;
     println!("    NFT owner: {new_owner}");
     anyhow::ensure!(new_owner == buyer.address(), "buyer should own the NFT");
 
     let buyer_balance_after: u128 = view_call(
-        &erc20,
+        &token,
         "balance_of",
         enc_address(&buyer.address()),
         &ParamType::U128,
     )
     .await?;
     let seller_balance: u128 = view_call(
-        &erc20,
+        &token,
         "balance_of",
         enc_address(&seller.address()),
         &ParamType::U128,
     )
     .await?;
-    println!("    buyer ERC20: {buyer_balance_initial} → {buyer_balance_after}");
-    println!("    seller ERC20: 0 → {seller_balance}");
+    println!("    buyer the token: {buyer_balance_initial} → {buyer_balance_after}");
+    println!("    seller the token: 0 → {seller_balance}");
     anyhow::ensure!(
         buyer_balance_after == buyer_balance_initial - price,
         "buyer balance delta mismatch"

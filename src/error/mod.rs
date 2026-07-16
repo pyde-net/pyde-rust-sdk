@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn error_code_from_named_token() {
-        let payload = b"erc20: ERR_FORBIDDEN -- sstore not allowed in view";
+        let payload = b"token: ERR_FORBIDDEN -- sstore not allowed in view";
         assert_eq!(extract_error_code(payload), Some(ErrorCode::Forbidden));
     }
 
@@ -512,7 +512,7 @@ mod tests {
     fn reverted_error_code_extracts_named_token() {
         let err = SdkError::Reverted {
             gas_used: 1000,
-            data: b"erc721: ERR_INSUFFICIENT_BALANCE".to_vec(),
+            data: b"token: ERR_INSUFFICIENT_BALANCE".to_vec(),
             reason: None,
         };
         assert_eq!(err.error_code(), Some(ErrorCode::InsufficientBalance));

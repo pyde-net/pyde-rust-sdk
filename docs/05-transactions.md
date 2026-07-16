@@ -384,8 +384,8 @@ Reference constants in [`src/constants.rs`](../src/constants.rs):
 | Constant | Value | What |
 |---|---|---|
 | `GAS_TRANSFER` | 100_000 | Simple PYDE send (above `MIN_GAS_LIMIT = 21_000` for hashing + sig-verify headroom). |
-| `GAS_ERC20_CALL` | 500_000 | Standard ERC20 method (transfer, approve, transferFrom). |
-| `GAS_ERC721_CALL` | 1_000_000 | Standard ERC721 method (mint, transferFrom, approve, setApprovalForAll). |
+| `GAS_TOKEN_CALL` | 500_000 | Standard ERC20 method (transfer, approve, transferFrom). |
+| `GAS_NFT_CALL` | 1_000_000 | Standard ERC721 method (mint, transferFrom, approve, setApprovalForAll). |
 | `GAS_DEPLOY` | 10_000_000 | Headroom for `Deploy` — actual usage usually smaller. |
 | `GAS_CROSS_CALL_ORCHESTRATOR` | 2_000_000 | Outer wrapper for a contract that internally calls another contract. |
 

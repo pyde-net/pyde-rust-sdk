@@ -85,13 +85,13 @@ floors.
 | Constant | Value | When |
 |---|---|---|
 | `GAS_TRANSFER` | `100_000` | A vanilla PYDE transfer (`tx_type=Standard`, empty calldata). Slightly above the engine's `MIN_GAS_LIMIT = 21_000` to absorb hashing + sig-verify costs. |
-| `GAS_ERC20_CALL` | `500_000` | An ERC20-style state-mutating call (transfer, approve, transferFrom). |
-| `GAS_ERC721_CALL` | `1_000_000` | An ERC721-style state-mutating call (mint, transferFrom, approve, setApprovalForAll). |
+| `GAS_TOKEN_CALL` | `500_000` | A fungible-token (pts-f/1) state-mutating call (transfer, approve, transfer_from). |
+| `GAS_NFT_CALL` | `1_000_000` | An NFT (pts-n/1) state-mutating call (mint, transfer_from, approve, set_approval_for_all). |
 | `GAS_DEPLOY` | `10_000_000` | A typical contract deployment (15-30 KiB WASM bundle). |
 | `GAS_CROSS_CALL_ORCHESTRATOR` | `2_000_000` | A marketplace-style cross-contract call (`buy(listing_id)` fan-out). |
 
 ```rust,no_run
-use pyde_rust_sdk::constants::{GAS_TRANSFER, GAS_ERC20_CALL};
+use pyde_rust_sdk::constants::{GAS_TRANSFER, GAS_TOKEN_CALL};
 use pyde_rust_sdk::TxBuilder;
 use pyde_rust_sdk::types::Address;
 

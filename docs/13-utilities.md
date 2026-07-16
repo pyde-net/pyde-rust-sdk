@@ -199,7 +199,7 @@ for s in &["0.5", "100.123456789", "0.000000123", "9999999999.999999999"] {
 ## 13.3 General unit conversion
 
 If you ever need non-PYDE precision (e.g., interacting with a
-contract that uses 18-decimal token units like ERC20-USDC),
+contract that uses 18-decimal token units — the PTS default is 9),
 `parse_units` / `format_units` take the decimals explicitly.
 
 ### `parse_units(value, decimals)`

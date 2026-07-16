@@ -11,15 +11,15 @@
 /// (21,000) to absorb hashing + signature-verify costs.
 pub const GAS_TRANSFER: u64 = 100_000;
 
-/// Default gas budget for an ERC20-style state-mutating call
-/// (transfer, approve, transfer_from). Suits the canonical
-/// otigen `erc20-token` template.
-pub const GAS_ERC20_CALL: u64 = 500_000;
+/// Default gas budget for a fungible-token (pts-f/1) state-mutating
+/// call (transfer, approve, transfer_from). Suits the canonical
+/// otigen `fungible-token` template.
+pub const GAS_TOKEN_CALL: u64 = 500_000;
 
-/// Default gas budget for an ERC721-style state-mutating call
-/// (mint, transfer_from, approve, set_approval_for_all). Higher
-/// than ERC20 because token-ownership state mutates more slots.
-pub const GAS_ERC721_CALL: u64 = 1_000_000;
+/// Default gas budget for an NFT (pts-n/1) state-mutating call
+/// (mint, transfer_from, approve, set_approval_for_all). Higher than
+/// the fungible budget because per-id ownership mutates more slots.
+pub const GAS_NFT_CALL: u64 = 1_000_000;
 
 /// Default gas budget for a contract deployment. Engine caps at
 /// the block gas limit; this is the typical comfort margin for a

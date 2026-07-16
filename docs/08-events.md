@@ -183,7 +183,7 @@ use pyde_rust_sdk::contract::Contract;
 use pyde_rust_sdk::Provider;
 
 # async fn run(provider: Arc<dyn Provider>) -> pyde_rust_sdk::Result<()> {
-let c = Contract::load("erc20-usdc", provider.clone()).await?;
+let c = Contract::load("acme-token", provider.clone()).await?;
 
 // All events from this contract.
 let all = provider.get_logs(&c.event_filter()).await?;
