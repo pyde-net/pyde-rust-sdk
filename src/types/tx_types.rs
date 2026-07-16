@@ -36,7 +36,7 @@ pub const MAX_TX_SIZE: usize = 128 * 1024;
 /// calldata and starve the access-list / envelope.
 pub const MAX_CALLDATA: usize = 64 * 1024;
 
-/// Discriminant for the 16 active + 1 reserved-vacant tx variants
+/// Discriminant for the 18 active + 1 reserved-vacant tx variants
 /// in Ch 11 §11.8.
 ///
 /// Tag values are **wire-load-bearing** — never reassign post-mainnet.

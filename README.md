@@ -95,7 +95,7 @@ Step-by-step explanation: [docs/02-quickstart.md](docs/02-quickstart.md).
 | [`tx`](src/tx) | `TxBuilder` + `tx_hash` (Poseidon2 over the canonical pre-image, signature excluded) + Borsh `encode` / `decode` |
 | [`signer`](src/signer) | `Signer` trait + `LocalSigner` (FALCON-512 keypair via `pyde-crypto`) |
 | [`wallet`](src/wallet) | `Wallet` (implements `Signer`) + `Keystore` (Argon2id + AES-256-GCM, SDK-specific format) |
-| [`provider`](src/provider) | `Provider` trait (28 RPC methods) + `HttpProvider` (reqwest) + `PendingTx` |
+| [`provider`](src/provider) | `Provider` trait (26 RPC methods) + `HttpProvider` (reqwest) + `PendingTx` + `send_private` |
 | [`ws`](src/ws) | `WsProvider` + `Subscription<Event>` (v1 ships `subscribe_logs`; other kinds queued behind the engine) |
 | [`abi`](src/abi) | `extract_abi(wasm)` — pulls the `pyde.abi` custom section from a contract's bytecode |
 | [`contract`](src/contract) | Dynamic `Contract` runtime + `pyde_abi!` proc-macro for compile-time typed wrappers |
