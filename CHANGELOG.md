@@ -6,7 +6,7 @@ follows [SemVer](https://semver.org/), with the caveat that everything
 pre-1.0 may have breaking changes at any minor bump (see
 [docs/12-compatibility.md](docs/12-compatibility.md#msrv--semver-intent)).
 
-## [0.2.0]
+## [0.2.0] — 2026-07-17
 
 ### Changed (BREAKING) — canonical keystore format
 - The keystore is now the **canonical Pyde account keystore**: a
@@ -33,6 +33,12 @@ pre-1.0 may have breaking changes at any minor bump (see
   legitimately-owned below-floor keystore still opens.
 - Cross-impl parity is pinned by `tests/keystore_parity.rs`, which
   decrypts an `otigen`-CLI-minted golden keystore.
+
+## [0.1.0] — 2026-06-14
+
+Initial public alpha, published to crates.io — every wire type
+byte-pinned to the chain engine. The MEV lane shipped as commit-reveal;
+the earlier threshold-encryption design was removed before publication.
 
 ### Added
 - **Two new `Provider` methods** for wave-head + fee-data queries:
@@ -226,12 +232,7 @@ pre-1.0 may have breaking changes at any minor bump (see
   envelope shapes; cross-SDK import is documented as a future
   convergence in `docs/12-compatibility.md`.
 
-## [0.1.0] — 2026-06-14
-
-Initial public alpha. Surface lock — every wire type byte-pinned to
-the chain engine.
-
-### Added
+### Added (initial surface)
 - Core types: `Address`, `TxHash`, `Blake3Hash`, `Poseidon2Hash`,
   `FalconPubkey`, `FalconSignature`, `FalconSecret`, `Tx`, `TxType`,
   `AuthKeys`, `FeePayer`, `AccessEntry`, `AccessType`, `DeployData`,
