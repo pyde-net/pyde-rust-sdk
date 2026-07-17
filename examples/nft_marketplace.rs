@@ -62,7 +62,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pyde_rust_sdk::constants::{
-    GAS_CROSS_CALL_ORCHESTRATOR, GAS_DEPLOY, GAS_TOKEN_CALL, GAS_NFT_CALL,
+    GAS_CROSS_CALL_ORCHESTRATOR, GAS_DEPLOY, GAS_NFT_CALL, GAS_TOKEN_CALL,
 };
 use pyde_rust_sdk::contract::{decode_value, Contract};
 use pyde_rust_sdk::provider::{HttpTransport, RootProvider};
@@ -263,11 +263,7 @@ async fn main() -> anyhow::Result<()> {
         concat(&[&enc_string("PydeNFT"), &enc_string("PYD")]),
     )
     .await?;
-    let nft = Contract::new(
-        nft_addr,
-        abi::extract_abi(&nft_wasm)?,
-        dyn_provider.clone(),
-    );
+    let nft = Contract::new(nft_addr, abi::extract_abi(&nft_wasm)?, dyn_provider.clone());
 
     // ── 3. Deploy Marketplace ────────────────────────────────
     println!("\n[3] deploy marketplace");

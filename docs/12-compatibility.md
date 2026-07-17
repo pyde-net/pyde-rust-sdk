@@ -148,31 +148,45 @@ crate:
 
 ---
 
-## 12.5 Keystore format differences
+## 12.5 Keystore format (canonical, cross-tool)
 
-Different cipher, different envelope shape. Side-by-side:
+This SDK writes the **canonical Pyde account keystore**: a
+multi-account JSON vault shared byte-for-byte with the `otigen`
+CLI, `pyde-ts-sdk`, the playground, and the wallet. A keystore
+minted by any conformant tool decrypts in every other, because
+AES-256-GCM is authenticated: a correct decrypt proves the
+Argon2id-derived key matched byte-for-byte.
 
-| Field | This SDK | `pyde-ts-sdk` |
-|---|---|---|
-| Pubkey field name | `pubkey` (snake_case) | `publicKey` (camelCase) |
-| KDF shape | nested `{ "kdf": { "name": "argon2id", "params": {…} } }` | flat `"kdf": "argon2id"` + separate `"kdfParams": {…}` |
-| Cipher algorithm | **AES-256-GCM** | **ChaCha20-Poly1305** |
-| Cipher shape | nested `{ "cipher": { "name": "aes-256-gcm", "nonce", "ciphertext" } }` | flat `"cipher": "chacha20-poly1305"` + top-level `"nonce"` + `"ciphertext"` |
-| Hex prefix | `"0x..."` | no prefix |
+| Primitive | Value |
+|---|---|
+| KDF | Argon2id (v0x13), `m = 64 MiB`, `t = 3`, `p = 4`, 32-byte output |
+| Cipher | AES-256-GCM, 12-byte nonce, 16-byte tag appended, **no AAD** |
+| Salt | 16 bytes, fresh per entry |
+| Encrypted payload | the 1281-byte FALCON-512 secret key only |
+| Container | `{ "version": 1, "accounts": { "<name>": { … } } }` |
+| Hex | lowercase, `0x`-prefixed |
 
-### A keystore generated in one SDK cannot be loaded by the other today
+Each account entry carries `address`, `pubkey`, `ciphertext`,
+`salt`, `nonce`, `cipher` (`"aes-256-gcm"`; absent means the same),
+and a flat `kdf` object (`name`, `memory_kb`, `iterations`,
+`parallelism`).
 
-If you need to migrate today: decrypt the source SDK's keystore
-with its native crypto stack, extract the 897-byte pubkey +
-1281-byte secret, then construct a new keystore via the target
-SDK's `Wallet::from_keys` + `to_keystore`.
+### Interoperability
 
-### Convergence is planned
+- **`otigen` CLI and this SDK: interoperable now**, verified by a
+  committed parity test (`tests/keystore_parity.rs`) that decrypts a
+  CLI-minted keystore.
+- **`pyde-ts-sdk`: converging.** ts-sdk `0.3.0` moves to
+  AES-256-GCM and the canonical envelope; once it ships, ts-sdk
+  keystores interoperate too. Older ts-sdk (`<= 0.2.x`)
+  ChaCha20-Poly1305 keystores are not read by this SDK.
 
-Both SDKs will eventually settle on one format (probably
-ChaCha20-Poly1305 + flat shape since TS's is cleaner and the
-cipher choice is more browser-friendly). When that lands, you
-won't need migration code.
+### Legacy keystores this SDK still reads
+
+The reader accepts each entry's own stored Argon2id parameters and
+enforces the Argon2id floor. `Wallet::from_keystore_json` also
+opens the older nested single-account keystore this SDK wrote at
+`0.1.0`, so upgrading does not strand existing files.
 
 ---
 

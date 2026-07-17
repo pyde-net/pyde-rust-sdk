@@ -86,8 +86,8 @@ let seed = [42u8; 32];
 let w2 = Wallet::from_seed(&seed)?;
 
 // 3. Round-trip via keystore for "restore from at-rest material."
-let ks = w1.to_keystore("pw")?;
-let w3 = Wallet::from_keystore(&ks, "pw")?;
+let ks = w1.to_keystore("acct", "pw")?;
+let w3 = Wallet::from_keystore(&ks, "acct", "pw")?;
 # Ok(()) }
 ```
 
@@ -154,41 +154,49 @@ Returns the on-chain address (32-byte Poseidon2 of the pubkey).
 
 Returns the 897-byte FALCON pubkey.
 
-### `Wallet::to_keystore(password)`
+### `Wallet::to_keystore(account_name, password)`
 
 | | |
 |---|---|
-| Signature | `fn to_keystore(&self, password: &str) -> Result<Keystore, SdkError>` |
-| `password` | Encryption password. Anything serializable as a `&str`. |
-| Returns | A `Keystore` (Argon2id + AES-256-GCM JSON envelope). |
+| Signature | `fn to_keystore(&self, account_name: &str, password: &str) -> Result<Keystore, SdkError>` |
+| `account_name` | Name for this account inside the vault. |
+| `password` | Encryption password. |
+| Returns | A canonical `Keystore` vault with one entry (Argon2id + AES-256-GCM). |
 | Errors | `SdkError::Other` on KDF/cipher failure (~unreachable). |
+
+Add more accounts to the same vault with
+`add_to_keystore(&mut keystore, name, password)`.
 
 ```rust,no_run
 use pyde_rust_sdk::Wallet;
 # fn run() -> pyde_rust_sdk::Result<()> {
 let w = Wallet::generate()?;
-let ks = w.to_keystore("correct horse battery staple")?;
+let ks = w.to_keystore("my-account", "correct horse battery staple")?;
 let json = serde_json::to_string_pretty(&ks)?;
-std::fs::write("wallet.json", json)?;
+std::fs::write("keystore.json", json)?;
 # Ok(()) }
 ```
 
-### `Wallet::from_keystore(&ks, password)`
+### `Wallet::from_keystore(&ks, account_name, password)`
 
 | | |
 |---|---|
-| Signature | `fn from_keystore(keystore: &Keystore, password: &str) -> Result<Wallet, SdkError>` |
-| `keystore` | A previously-encrypted `Keystore`. |
+| Signature | `fn from_keystore(keystore: &Keystore, account_name: &str, password: &str) -> Result<Wallet, SdkError>` |
+| `keystore` | A canonical `Keystore` vault. |
+| `account_name` | Which account in the vault to open. |
 | `password` | Decryption password — must match `to_keystore`. |
 | Returns | The restored `Wallet`. |
-| Errors | `SdkError::InvalidArgument` for wrong password, unsupported version, malformed envelope, or pubkey/address mismatch. |
+| Errors | `SdkError::InvalidArgument` for wrong password, unknown account, unsupported version, a KDF below the Argon2id floor, malformed envelope, or pubkey/address mismatch. |
+
+For raw JSON that may also be the legacy `0.1.0` nested keystore,
+use `Wallet::from_keystore_json(json, account_name, password)`.
 
 ```rust,no_run
 use pyde_rust_sdk::{Keystore, Wallet};
 # fn run() -> pyde_rust_sdk::Result<()> {
-let bytes = std::fs::read("wallet.json")?;
+let bytes = std::fs::read("keystore.json")?;
 let ks: Keystore = serde_json::from_slice(&bytes)?;
-let w = Wallet::from_keystore(&ks, "correct horse battery staple")?;
+let w = Wallet::from_keystore(&ks, "my-account", "correct horse battery staple")?;
 println!("{}", w.address());
 # Ok(()) }
 ```
@@ -210,14 +218,14 @@ use pyde_rust_sdk::{Keystore, Wallet};
 let w = Wallet::generate()?;
 
 // Encrypt + save.
-let ks: Keystore = w.to_keystore("correct horse battery staple")?;
+let ks: Keystore = w.to_keystore("my-account", "correct horse battery staple")?;
 let json = serde_json::to_string_pretty(&ks)?;
-std::fs::write("/tmp/wallet.json", json)?;
+std::fs::write("/tmp/keystore.json", json)?;
 
 // Load + decrypt.
-let bytes = std::fs::read("/tmp/wallet.json")?;
+let bytes = std::fs::read("/tmp/keystore.json")?;
 let ks: Keystore = serde_json::from_slice(&bytes)?;
-let w2 = Wallet::from_keystore(&ks, "correct horse battery staple")?;
+let w2 = Wallet::from_keystore(&ks, "my-account", "correct horse battery staple")?;
 
 assert_eq!(w.address(), w2.address());
 # Ok(()) }
@@ -282,8 +290,8 @@ failed — bad password or corrupt keystore").
 use pyde_rust_sdk::{Keystore, Wallet};
 # fn run() -> pyde_rust_sdk::Result<()> {
 let w = Wallet::generate()?;
-let ks = w.to_keystore("right")?;
-let err = Wallet::from_keystore(&ks, "wrong").unwrap_err();
+let ks = w.to_keystore("acct", "right")?;
+let err = Wallet::from_keystore(&ks, "acct", "wrong").unwrap_err();
 println!("{err}");
 # Ok(()) }
 ```
@@ -293,19 +301,21 @@ println!("{err}");
 invalid argument: decrypt failed — bad password or corrupt keystore
 ```
 
-### Importing from `pyde-ts-sdk`
+### Importing from the `otigen` CLI and other tools
 
-You can't, directly. The TS SDK uses ChaCha20-Poly1305 + a flat
-envelope shape; this SDK uses AES-256-GCM + a nested envelope.
-See [Compatibility §12.4](12-compatibility.md#124-ts-sdk-delta).
+Directly. This SDK writes and reads the canonical Pyde account
+keystore, so a vault minted by `otigen wallet new` (or any
+conformant tool) opens here with no migration step:
 
-If you need to migrate today:
+```rust,ignore
+let keystore: Keystore = serde_json::from_slice(&std::fs::read("keystore.json")?)?;
+let wallet = Wallet::from_keystore(&keystore, "my-account", password)?;
+```
 
-1. Decrypt the TS keystore with a ChaCha20 + Argon2id
-   implementation outside the SDK.
-2. Extract the 897-byte pubkey + 1281-byte secret.
-3. `Wallet::from_keys(pubkey, secret)` + a fresh
-   `to_keystore("…")` to land it in the Rust format.
+`Wallet::from_keystore_json` additionally opens the older nested
+keystore this SDK wrote at `0.1.0`. See
+[Compatibility §12.5](12-compatibility.md#125-keystore-format-canonical-cross-tool)
+for the full format and the `pyde-ts-sdk` convergence status.
 
 ---
 
