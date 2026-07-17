@@ -49,11 +49,14 @@ fn unknown_kdf_name_rejected() {
 }
 
 #[test]
-fn kdf_below_floor_rejected() {
+fn kdf_above_clamp_rejected() {
+    // Anti-DoS: a crafted memory_kb above the 1 GiB upper bound must be
+    // rejected before any allocation. (There is deliberately no lower
+    // floor reject.)
     let (_w, mut ks) = fresh_keystore("pw");
-    entry(&mut ks).kdf.parallelism = 1; // below the p=4 floor
+    entry(&mut ks).kdf.memory_kb = 2_097_152; // 2 GiB, above the clamp
     let err = Wallet::from_keystore(&ks, ACCT, "pw").unwrap_err();
-    assert!(matches!(err, SdkError::InvalidArgument(ref m) if m.contains("floor")));
+    assert!(matches!(err, SdkError::InvalidArgument(ref m) if m.contains("upper bound")));
 }
 
 #[test]
