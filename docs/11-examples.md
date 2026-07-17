@@ -105,9 +105,10 @@ cargo run --example keystore
 
 **What it does:**
 
-Round-trips a wallet through the encrypted keystore: generate →
-`to_keystore("pw")` → write JSON to `/tmp/pyde-keystore-example.json`
-→ re-read → `from_keystore` → assert address matches. Then
+Round-trips a wallet through the canonical keystore vault: generate →
+`to_keystore("my-account", pw)` → write JSON to
+`/tmp/pyde-keystore-example.json` → re-read →
+`from_keystore(&ks, "my-account", pw)` → assert address matches. Then
 demonstrates the wrong-password failure path.
 
 **Expected output:**

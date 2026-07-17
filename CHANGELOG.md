@@ -6,8 +6,30 @@ follows [SemVer](https://semver.org/), with the caveat that everything
 pre-1.0 may have breaking changes at any minor bump (see
 [docs/12-compatibility.md](docs/12-compatibility.md#msrv--semver-intent)).
 
-## [Unreleased]
-> Targeting 0.2.0 (TBD).
+## [0.2.0]
+
+### Changed (BREAKING) — canonical keystore format
+- The keystore is now the **canonical Pyde account keystore**: a
+  multi-account JSON vault (`{ version, accounts: { name: entry } }`)
+  shared byte-for-byte with the `otigen` CLI, `pyde-ts-sdk`, the
+  playground, and the wallet. A keystore minted by any conformant tool
+  decrypts in every other.
+  - Argon2id parallelism `p` is now **4** (was 1), matching the spec
+    floor and the reference implementation.
+  - The address is no longer bound as AEAD associated data; AES-256-GCM
+    is used with **no AAD** for cross-implementation interchange.
+  - Entry shape is flat: `kdf { name, memory_kb, iterations, parallelism }`
+    with `salt` / `nonce` / `ciphertext` / `cipher` at the entry level.
+- **API:** `Wallet::to_keystore` and `Wallet::from_keystore` now take an
+  account name (`to_keystore(name, password)`,
+  `from_keystore(&ks, name, password)`). New: `add_to_keystore`,
+  `Keystore::account_names`, and `KeystoreEntry` / `KdfParams` are public.
+- **Migration:** `Wallet::from_keystore_json` reads both the canonical
+  vault and the older nested single-account keystore this SDK wrote at
+  `0.1.0`, so existing files keep opening. The reader enforces the
+  Argon2id floor (downgrade hygiene) and accepts only `aes-256-gcm`.
+- Cross-impl parity is pinned by `tests/keystore_parity.rs`, which
+  decrypts an `otigen`-CLI-minted golden keystore.
 
 ### Added
 - **Two new `Provider` methods** for wave-head + fee-data queries:

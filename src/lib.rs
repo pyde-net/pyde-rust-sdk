@@ -9,10 +9,10 @@
 //!
 //! Sister SDK in TypeScript: `pyde-ts-sdk`. Both target the same
 //! chain wire format (Tx, TxType, AuthKeys, FALCON/Poseidon2 byte
-//! shapes are pinned across both) but have SDK-specific extras —
-//! notably the encrypted-keystore envelopes are not interchangeable
-//! (this crate uses AES-256-GCM + nested envelope; TS uses
-//! ChaCha20-Poly1305 + flat envelope). See `docs/12-compatibility.md`.
+//! shapes are pinned across both), and both write the canonical Pyde
+//! account keystore (Argon2id + AES-256-GCM, the shared multi-account
+//! vault), so a keystore made by one opens in the other and in the
+//! `otigen` CLI. See `docs/12-compatibility.md`.
 //!
 //! ## Quick start
 //!
@@ -84,5 +84,5 @@ pub use types::{
     RecentWaveSummary, RevealPayload, RevertCategory, RevertReason, SimulationResult, Tx, TxHash,
     TxType,
 };
-pub use wallet::{Keystore, Wallet};
+pub use wallet::{KdfParams, Keystore, KeystoreEntry, Wallet};
 pub use ws::{Subscription, WsProvider, WsTransport};

@@ -1,4 +1,4 @@
-//! `Wallet` + encrypted [`Keystore`].
+//! `Wallet` + the canonical Pyde account [`Keystore`].
 //!
 //! A wallet is the user-facing entry point for the SDK:
 //!
@@ -9,39 +9,59 @@
 //! let wallet = Wallet::generate()?;
 //! println!("address: {}", wallet.address());
 //!
-//! // Persist the wallet, password-protected.
-//! let keystore = wallet.to_keystore("correct horse battery staple")?;
-//! std::fs::write("wallet.json", serde_json::to_vec_pretty(&keystore)?)?;
+//! // Persist it into a password-protected keystore vault.
+//! let keystore = wallet.to_keystore("my-account", "correct horse battery staple")?;
+//! std::fs::write("keystore.json", serde_json::to_vec_pretty(&keystore)?)?;
 //!
 //! // Load it back.
 //! let stored: pyde_rust_sdk::wallet::Keystore =
-//!     serde_json::from_slice(&std::fs::read("wallet.json")?)?;
-//! let wallet = Wallet::from_keystore(&stored, "correct horse battery staple")?;
+//!     serde_json::from_slice(&std::fs::read("keystore.json")?)?;
+//! let wallet = Wallet::from_keystore(&stored, "my-account", "correct horse battery staple")?;
 //! ```
 //!
-//! ## Keystore format
+//! ## Keystore format (canonical, cross-tool)
 //!
-//! JSON envelope, version-tagged so future cipher / KDF upgrades
-//! can be additive:
+//! The on-disk format is the **canonical Pyde account keystore**: a
+//! multi-account JSON vault shared by `otigen-wallet`, `pyde-rust-sdk`,
+//! `pyde-ts-sdk`, the playground, and the wallet. A keystore written by
+//! any conformant tool decrypts in every other, because AES-256-GCM is
+//! authenticated: a correct decrypt proves the derived key matched
+//! byte-for-byte.
 //!
 //! ```json
 //! {
 //!   "version": 1,
-//!   "address": "0x…",
-//!   "pubkey": "0x…",
-//!   "kdf": { "name": "argon2id", "params": { "m":65536,"t":3,"p":1,"salt":"0x…" } },
-//!   "cipher": { "name":"aes-256-gcm","nonce":"0x…","ciphertext":"0x…" }
+//!   "accounts": {
+//!     "my-account": {
+//!       "address":    "0x…",
+//!       "pubkey":     "0x…",
+//!       "ciphertext": "0x…",
+//!       "salt":       "0x… (16 bytes)",
+//!       "nonce":      "0x… (12 bytes)",
+//!       "cipher":     "aes-256-gcm",
+//!       "kdf": { "name": "argon2id", "memory_kb": 65536, "iterations": 3, "parallelism": 4 }
+//!     }
+//!   }
 //! }
 //! ```
 //!
-//! - **KDF**: argon2id with `t=3, m=64 MiB, p=1` — current OWASP
-//!   guidance.
-//! - **Cipher**: AES-256-GCM. 12-byte random nonce per write; the
-//!   GCM tag is appended to the ciphertext.
+//! - **KDF**: Argon2id (version 0x13) with `m = 64 MiB`, `t = 3`,
+//!   `p = 4`, 32-byte output. Params are embedded per entry so a future
+//!   param bump still decrypts old vaults.
+//! - **Cipher**: AES-256-GCM, 12-byte random nonce per entry, 16-byte
+//!   GCM tag appended to the ciphertext, **no associated data** (AAD),
+//!   so the encoding is identical across implementations.
+//! - **Encrypted payload**: only the 1281-byte FALCON-512 secret key.
+//!   The public key and address are stored in the clear.
 //!
-//! The keystore format is SDK-specific — `pyde-ts-sdk` uses a
-//! different cipher (ChaCha20-Poly1305) + flat field shape, so
-//! keystores don't import across SDKs today.
+//! The reader is param-agile per the spec: it reads each entry with its
+//! own stored Argon2id parameters, accepts only the `aes-256-gcm` cipher
+//! suite, and rejects any KDF weaker than the Argon2id floor (downgrade
+//! hygiene). [`Wallet::from_keystore_json`] additionally reads the older
+//! nested single-account keystore this SDK wrote at `0.1.0`, so those
+//! keep opening.
+
+use std::collections::BTreeMap;
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -69,19 +89,13 @@ use crate::types::{
 ///
 /// The inner [`FalconSecret`] derives `ZeroizeOnDrop`, so when a
 /// `Wallet` is dropped the 1281-byte secret-key buffer is wiped
-/// before the allocator reclaims the memory. You don't need to
-/// call any explicit cleanup — letting the `Wallet` go out of
-/// scope is enough. See `wallet_drop_wipes_secret` in
-/// `tests/wallet_drop.rs` for the test pin.
+/// before the allocator reclaims the memory.
 pub struct Wallet {
     signer: LocalSigner,
 }
 
 impl Wallet {
     /// Generate a fresh wallet from OS entropy.
-    ///
-    /// This is the default "create new account" path. Internally
-    /// uses `getrandom` via [`pyde_crypto::falcon::falcon_keygen`].
     ///
     /// # Errors
     /// Returns [`SdkError::Signing`] if FALCON keygen fails.
@@ -107,9 +121,7 @@ impl Wallet {
 
     /// Construct a wallet from a previously-stored pubkey + secret.
     ///
-    /// Typically called by [`Self::from_keystore`] after decrypting
-    /// the secret bytes. Validates that the pubkey matches the
-    /// secret by signing a probe hash and verifying it.
+    /// Validates that the pubkey matches the secret.
     ///
     /// # Errors
     /// Returns [`SdkError::Signing`] on a pubkey/secret mismatch.
@@ -137,27 +149,153 @@ impl Wallet {
         self.signer.pubkey()
     }
 
-    /// Encrypt the secret key under `password` and produce a
-    /// JSON-serialisable [`Keystore`].
+    /// Encrypt this wallet into a fresh canonical [`Keystore`] vault
+    /// holding a single account named `account_name`.
     ///
-    /// Uses fresh random salt (16 B) + nonce (12 B). Same wallet
-    /// + same password produces a *different* keystore each call.
+    /// Uses a fresh random salt (16 B) + nonce (12 B), so the same
+    /// wallet + password produces a *different* ciphertext each call.
     ///
     /// # Errors
-    /// Returns [`SdkError::Other`] only on RNG / cipher failures
-    /// (effectively unreachable on commodity hardware).
-    pub fn to_keystore(&self, password: &str) -> Result<Keystore, SdkError> {
-        Keystore::encrypt(&self.pubkey(), self.signer.secret(), password)
+    /// Returns [`SdkError::Other`] only on RNG / cipher failures.
+    pub fn to_keystore(&self, account_name: &str, password: &str) -> Result<Keystore, SdkError> {
+        let mut keystore = Keystore::new();
+        self.add_to_keystore(&mut keystore, account_name, password)?;
+        Ok(keystore)
     }
 
-    /// Decrypt a [`Keystore`] with `password` and load the wallet.
+    /// Add this wallet to an existing keystore vault under
+    /// `account_name`, encrypting under `password`. Overwrites any
+    /// entry already stored under that name.
     ///
     /// # Errors
-    /// Returns [`SdkError::InvalidArgument`] on bad-password / KDF
-    /// failure, [`SdkError::Signing`] on a pubkey/secret mismatch
-    /// (corrupt keystore).
-    pub fn from_keystore(keystore: &Keystore, password: &str) -> Result<Self, SdkError> {
-        let (pubkey, secret) = keystore.decrypt(password)?;
+    /// Returns [`SdkError::Other`] on RNG / cipher failure.
+    pub fn add_to_keystore(
+        &self,
+        keystore: &mut Keystore,
+        account_name: &str,
+        password: &str,
+    ) -> Result<(), SdkError> {
+        let entry = encrypt_entry(&self.pubkey(), self.signer.secret(), password)?;
+        keystore.accounts.insert(account_name.to_string(), entry);
+        Ok(())
+    }
+
+    /// Decrypt the account named `account_name` from a canonical
+    /// [`Keystore`] vault.
+    ///
+    /// # Errors
+    /// - [`SdkError::InvalidArgument`] if the vault version is
+    ///   unsupported, the account name is absent, the KDF is not
+    ///   Argon2id or is below the parameter floor, the cipher suite is
+    ///   not allowlisted, hex is malformed, or the password is wrong.
+    /// - [`SdkError::Signing`] on a pubkey/secret mismatch.
+    pub fn from_keystore(
+        keystore: &Keystore,
+        account_name: &str,
+        password: &str,
+    ) -> Result<Self, SdkError> {
+        if keystore.version > KEYSTORE_VERSION {
+            return Err(SdkError::InvalidArgument(format!(
+                "unsupported keystore version {}",
+                keystore.version
+            )));
+        }
+        let entry = keystore.accounts.get(account_name).ok_or_else(|| {
+            SdkError::InvalidArgument(format!("no account named {account_name:?} in keystore"))
+        })?;
+        let (pubkey, secret) = decrypt_entry(entry, password)?;
+        Self::from_keys(pubkey, secret)
+    }
+
+    /// Decrypt an account from raw keystore JSON, accepting both the
+    /// canonical multi-account vault and the older nested
+    /// single-account keystore this SDK wrote at `0.1.0`.
+    ///
+    /// For the canonical format, `account_name` selects the entry. For
+    /// the legacy single-account format there is only one key, so
+    /// `account_name` is ignored.
+    ///
+    /// # Errors
+    /// [`SdkError::InvalidArgument`] if the JSON matches neither format
+    /// or decryption fails; [`SdkError::Signing`] on key mismatch.
+    pub fn from_keystore_json(
+        json: &str,
+        account_name: &str,
+        password: &str,
+    ) -> Result<Self, SdkError> {
+        // Canonical vault: a non-empty `accounts` map is the tell.
+        if let Ok(keystore) = serde_json::from_str::<Keystore>(json) {
+            if !keystore.accounts.is_empty() {
+                return Self::from_keystore(&keystore, account_name, password);
+            }
+        }
+        // Legacy nested single-account keystore (this SDK, 0.1.0).
+        if let Ok(legacy) = serde_json::from_str::<LegacyKeystore>(json) {
+            return Self::from_legacy(&legacy, password);
+        }
+        Err(SdkError::InvalidArgument(
+            "unrecognized keystore format (neither canonical vault nor legacy 0.1.0)".into(),
+        ))
+    }
+
+    /// Decrypt the legacy nested single-account keystore written by
+    /// this SDK at `0.1.0` (`kdf.params.{m,t,p}` + nested `cipher`
+    /// object + address bound as AEAD associated data).
+    fn from_legacy(legacy: &LegacyKeystore, password: &str) -> Result<Self, SdkError> {
+        if legacy.version != 1 {
+            return Err(SdkError::InvalidArgument(format!(
+                "unsupported legacy keystore version {}",
+                legacy.version
+            )));
+        }
+        if legacy.kdf.name != "argon2id" {
+            return Err(SdkError::InvalidArgument(format!(
+                "unsupported KDF: {}",
+                legacy.kdf.name
+            )));
+        }
+        if legacy.cipher.name != "aes-256-gcm" {
+            return Err(SdkError::InvalidArgument(format!(
+                "unsupported cipher: {}",
+                legacy.cipher.name
+            )));
+        }
+        let salt = decode_hex(&legacy.kdf.params.salt, SALT_LEN, "salt")?;
+        let nonce_bytes = decode_hex(&legacy.cipher.nonce, AES_NONCE_LEN, "nonce")?;
+        let ciphertext = decode_hex_var(&legacy.cipher.ciphertext, "ciphertext")?;
+        let pubkey = FalconPubkey::from_hex(&legacy.pubkey)?;
+        let address = Address::from_hex(&legacy.address)?;
+        if Address::from_pubkey(&pubkey) != address {
+            return Err(SdkError::InvalidArgument(
+                "keystore address does not match pubkey".into(),
+            ));
+        }
+        let mut key = derive_key(
+            password,
+            &salt,
+            legacy.kdf.params.m,
+            legacy.kdf.params.t,
+            legacy.kdf.params.p,
+        )?;
+        // 0.1.0 bound the address hex as AEAD associated data.
+        let aad = address.to_hex().into_bytes();
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| SdkError::Other(format!("AES key init failed: {e}")))?;
+        let plaintext = cipher
+            .decrypt(
+                Nonce::from_slice(&nonce_bytes),
+                Payload {
+                    msg: &ciphertext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| {
+                SdkError::InvalidArgument(
+                    "decrypt failed — bad password or corrupt keystore".into(),
+                )
+            });
+        key.zeroize();
+        let secret = secret_from_plaintext(plaintext?)?;
         Self::from_keys(pubkey, secret)
     }
 }
@@ -190,241 +328,255 @@ impl std::fmt::Debug for Wallet {
     }
 }
 
-// ── Keystore ───────────────────────────────────────────────────
+// ── Canonical keystore format ──────────────────────────────────
 
-/// Current keystore format version. Bump when changing the JSON
-/// shape in a non-backward-compatible way.
+/// Current keystore schema version. Bumped only on breaking format
+/// changes; additive fields use serde defaults and never bump it.
 pub const KEYSTORE_VERSION: u32 = 1;
 
-/// Argon2id memory cost in KiB — 64 MiB. OWASP-recommended floor
-/// for password-encrypted secrets.
-pub const ARGON2_M_KIB: u32 = 64 * 1024;
+/// Argon2id memory cost in KiB (64 MiB) — the pinned floor.
+pub const ARGON2_MEMORY_KB: u32 = 64 * 1024;
 
-/// Argon2id time cost (iterations).
-pub const ARGON2_T: u32 = 3;
+/// Argon2id time cost (iterations) — the pinned floor.
+pub const ARGON2_ITERATIONS: u32 = 3;
 
-/// Argon2id parallelism (lanes).
-pub const ARGON2_P: u32 = 1;
-
-/// Argon2id salt length in bytes.
-pub const ARGON2_SALT_LEN: usize = 16;
+/// Argon2id parallelism (lanes) — the pinned floor.
+pub const ARGON2_PARALLELISM: u32 = 4;
 
 /// AES-256-GCM key length in bytes.
 const AES_KEY_LEN: usize = 32;
 
-/// AES-256-GCM nonce length in bytes.
+/// AES-256-GCM / ChaCha20-Poly1305 nonce length in bytes.
 const AES_NONCE_LEN: usize = 12;
 
-/// JSON envelope for an encrypted wallet on disk.
+/// Argon2id salt length in bytes.
+const SALT_LEN: usize = 16;
+
+fn default_cipher_aes() -> String {
+    "aes-256-gcm".to_string()
+}
+
+/// The canonical Pyde account keystore: a multi-account JSON vault.
 ///
-/// This format is **specific to this SDK** — `pyde-ts-sdk` ships its
-/// own keystore (ChaCha20-Poly1305 + flat envelope) and the two are
-/// not interchangeable today. See `docs/12-compatibility.md` for the
-/// concrete field-shape differences if you need to migrate a
-/// keystore by hand.
+/// Shared byte-for-byte with `otigen-wallet`, `pyde-ts-sdk`, the
+/// playground, and the wallet. Single-account tools still write this
+/// envelope with one entry, which is what makes "one file opens
+/// everywhere" hold.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keystore {
     /// Envelope version. Currently [`KEYSTORE_VERSION`].
     pub version: u32,
-    /// Wallet address, hex.
-    pub address: String,
-    /// FALCON-512 pubkey, hex — 897 bytes.
-    pub pubkey: String,
-    /// KDF parameters used to derive the AES key.
-    pub kdf: KdfParams,
-    /// Cipher parameters and ciphertext.
-    pub cipher: CipherParams,
+    /// Encrypted accounts, keyed by account name.
+    #[serde(default)]
+    pub accounts: BTreeMap<String, KeystoreEntry>,
 }
 
-/// KDF parameters for the keystore (argon2id today).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KdfParams {
-    /// KDF name — always `"argon2id"` for v1 keystores.
-    pub name: String,
-    /// Algorithm-specific parameters.
-    pub params: Argon2Params,
-}
-
-/// Argon2id parameter set.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Argon2Params {
-    /// Memory cost in KiB.
-    pub m: u32,
-    /// Time cost (iterations).
-    pub t: u32,
-    /// Parallelism (lanes).
-    pub p: u32,
-    /// Salt bytes, hex. 16 bytes.
-    pub salt: String,
-}
-
-/// Cipher parameters + ciphertext.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CipherParams {
-    /// Cipher name — always `"aes-256-gcm"` for v1 keystores.
-    pub name: String,
-    /// AES-GCM nonce, hex. 12 bytes.
-    pub nonce: String,
-    /// Ciphertext including the appended GCM tag, hex.
-    pub ciphertext: String,
+impl Default for Keystore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Keystore {
-    /// Encrypt `secret` under `password` and produce a keystore.
-    ///
-    /// # Errors
-    /// Returns [`SdkError::Other`] on KDF / cipher failure.
-    pub fn encrypt(
-        pubkey: &FalconPubkey,
-        secret: &FalconSecret,
-        password: &str,
-    ) -> Result<Self, SdkError> {
-        let mut rng = rand::thread_rng();
-        let mut salt = [0u8; ARGON2_SALT_LEN];
-        rng.fill_bytes(&mut salt);
-        let mut nonce_bytes = [0u8; AES_NONCE_LEN];
-        rng.fill_bytes(&mut nonce_bytes);
-
-        let mut key = derive_aes_key(password, &salt)?;
-        let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|e| SdkError::Other(format!("AES key init failed: {e}")))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
-        // Bind the pubkey hex into the AEAD as associated data so
-        // tampering with `pubkey` after encryption invalidates the
-        // tag.
-        let address = Address::from_pubkey(pubkey);
-        let aad = address.to_hex().into_bytes();
-
-        let ciphertext = cipher
-            .encrypt(
-                nonce,
-                Payload {
-                    msg: secret.as_bytes(),
-                    aad: &aad,
-                },
-            )
-            .map_err(|e| SdkError::Other(format!("AES encrypt failed: {e}")))?;
-
-        key.zeroize();
-
-        Ok(Self {
+    /// A fresh, empty vault at the current version.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             version: KEYSTORE_VERSION,
-            address: address.to_hex(),
-            pubkey: pubkey.to_hex(),
-            kdf: KdfParams {
-                name: "argon2id".into(),
-                params: Argon2Params {
-                    m: ARGON2_M_KIB,
-                    t: ARGON2_T,
-                    p: ARGON2_P,
-                    salt: format!("0x{}", hex::encode(salt)),
-                },
-            },
-            cipher: CipherParams {
-                name: "aes-256-gcm".into(),
-                nonce: format!("0x{}", hex::encode(nonce_bytes)),
-                ciphertext: format!("0x{}", hex::encode(&ciphertext)),
-            },
-        })
+            accounts: BTreeMap::new(),
+        }
     }
 
-    /// Decrypt the keystore under `password` and return the pubkey
-    /// + secret.
-    ///
-    /// # Errors
-    /// - [`SdkError::InvalidArgument`] on unknown version, unknown
-    ///   KDF / cipher name, or malformed hex.
-    /// - [`SdkError::InvalidArgument`] on a wrong password (the GCM
-    ///   tag fails to verify).
-    pub fn decrypt(&self, password: &str) -> Result<(FalconPubkey, FalconSecret), SdkError> {
-        if self.version != KEYSTORE_VERSION {
-            return Err(SdkError::InvalidArgument(format!(
-                "unsupported keystore version {}",
-                self.version
-            )));
-        }
-        if self.kdf.name != "argon2id" {
-            return Err(SdkError::InvalidArgument(format!(
-                "unsupported KDF: {}",
-                self.kdf.name
-            )));
-        }
-        if self.cipher.name != "aes-256-gcm" {
-            return Err(SdkError::InvalidArgument(format!(
-                "unsupported cipher: {}",
-                self.cipher.name
-            )));
-        }
+    /// Names of the accounts held in this vault.
+    #[must_use]
+    pub fn account_names(&self) -> Vec<&str> {
+        self.accounts.keys().map(String::as_str).collect()
+    }
+}
 
-        let salt = decode_hex(&self.kdf.params.salt, ARGON2_SALT_LEN, "salt")?;
-        let nonce_bytes = decode_hex(&self.cipher.nonce, AES_NONCE_LEN, "nonce")?;
-        let ciphertext = decode_hex_var(&self.cipher.ciphertext, "ciphertext")?;
-        let pubkey = FalconPubkey::from_hex(&self.pubkey)?;
-        let address = Address::from_hex(&self.address)?;
-        if Address::from_pubkey(&pubkey) != address {
-            return Err(SdkError::InvalidArgument(
-                "keystore address does not match pubkey".into(),
-            ));
+/// One password-encrypted account entry in a [`Keystore`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeystoreEntry {
+    /// `0x` + 64 hex chars — the account address.
+    pub address: String,
+    /// `0x` + hex of the FALCON-512 public-key bytes.
+    pub pubkey: String,
+    /// `0x` + hex of `AES-256-GCM(secret_key)` with the 16-byte tag
+    /// appended.
+    pub ciphertext: String,
+    /// `0x` + 32 hex chars (16 bytes) — Argon2id salt.
+    pub salt: String,
+    /// `0x` + 24 hex chars (12 bytes) — AEAD nonce.
+    pub nonce: String,
+    /// Cipher-suite id. Writers emit `"aes-256-gcm"`; absent means
+    /// `"aes-256-gcm"` (back-compat with keystores that omit it).
+    #[serde(default = "default_cipher_aes")]
+    pub cipher: String,
+    /// KDF parameters, embedded per entry.
+    pub kdf: KdfParams,
+}
+
+/// Argon2id parameters for a keystore entry. Flat; the salt lives at
+/// the entry level, not nested here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KdfParams {
+    /// KDF name — always `"argon2id"`.
+    pub name: String,
+    /// Memory cost in KiB.
+    pub memory_kb: u32,
+    /// Time cost (iterations).
+    pub iterations: u32,
+    /// Parallelism (lanes).
+    pub parallelism: u32,
+}
+
+impl KdfParams {
+    /// The current pinned parameters embedded into every new entry.
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            name: "argon2id".into(),
+            memory_kb: ARGON2_MEMORY_KB,
+            iterations: ARGON2_ITERATIONS,
+            parallelism: ARGON2_PARALLELISM,
         }
-        let aad = address.to_hex().into_bytes();
+    }
+}
 
-        // Allow the keystore to override KDF params (for forward
-        // compat with stronger defaults shipped later) but validate
-        // they're sane.
-        let m = self.kdf.params.m;
-        let t = self.kdf.params.t;
-        let p = self.kdf.params.p;
-        let mut key = derive_aes_key_with_params(password, &salt, m, t, p)?;
-        let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|e| SdkError::Other(format!("AES key init failed: {e}")))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+// ── Encrypt / decrypt ──────────────────────────────────────────
 
-        let plaintext = cipher
-            .decrypt(
-                nonce,
-                Payload {
-                    msg: &ciphertext,
-                    aad: &aad,
-                },
-            )
-            .map_err(|_| {
-                SdkError::InvalidArgument(
-                    "decrypt failed — bad password or corrupt keystore".into(),
-                )
-            })?;
+/// Encrypt a wallet's secret key into a canonical [`KeystoreEntry`]
+/// (AES-256-GCM, no AAD, current Argon2id params).
+fn encrypt_entry(
+    pubkey: &FalconPubkey,
+    secret: &FalconSecret,
+    password: &str,
+) -> Result<KeystoreEntry, SdkError> {
+    let mut rng = rand::thread_rng();
+    let mut salt = [0u8; SALT_LEN];
+    rng.fill_bytes(&mut salt);
+    let mut nonce_bytes = [0u8; AES_NONCE_LEN];
+    rng.fill_bytes(&mut nonce_bytes);
 
+    let mut key = derive_key(
+        password,
+        &salt,
+        ARGON2_MEMORY_KB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+    )?;
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|e| SdkError::Other(format!("AES key init failed: {e}")))?;
+    // No associated data — cross-implementation interchange.
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), &secret.as_bytes()[..])
+        .map_err(|e| SdkError::Other(format!("AES encrypt failed: {e}")))?;
+    key.zeroize();
+
+    let address = Address::from_pubkey(pubkey);
+    Ok(KeystoreEntry {
+        address: address.to_hex(),
+        pubkey: pubkey.to_hex(),
+        ciphertext: format!("0x{}", hex::encode(&ciphertext)),
+        salt: format!("0x{}", hex::encode(salt)),
+        nonce: format!("0x{}", hex::encode(nonce_bytes)),
+        cipher: default_cipher_aes(),
+        kdf: KdfParams::current(),
+    })
+}
+
+/// Decrypt a canonical [`KeystoreEntry`]: enforce the Argon2id floor,
+/// dispatch on the allowlisted cipher suite, return the pubkey +
+/// secret.
+fn decrypt_entry(
+    entry: &KeystoreEntry,
+    password: &str,
+) -> Result<(FalconPubkey, FalconSecret), SdkError> {
+    // KDF binding + downgrade hygiene: only Argon2id, never below floor.
+    if entry.kdf.name != "argon2id" {
+        return Err(SdkError::InvalidArgument(format!(
+            "unsupported KDF: {}",
+            entry.kdf.name
+        )));
+    }
+    if entry.kdf.memory_kb < ARGON2_MEMORY_KB
+        || entry.kdf.iterations < ARGON2_ITERATIONS
+        || entry.kdf.parallelism < ARGON2_PARALLELISM
+    {
+        return Err(SdkError::InvalidArgument(
+            "keystore KDF parameters are below the Argon2id floor".into(),
+        ));
+    }
+
+    let salt = decode_hex(&entry.salt, SALT_LEN, "salt")?;
+    let nonce_bytes = decode_hex(&entry.nonce, AES_NONCE_LEN, "nonce")?;
+    let ciphertext = decode_hex_var(&entry.ciphertext, "ciphertext")?;
+    let pubkey = FalconPubkey::from_hex(&entry.pubkey)?;
+    let address = Address::from_hex(&entry.address)?;
+    if Address::from_pubkey(&pubkey) != address {
+        return Err(SdkError::InvalidArgument(
+            "keystore address does not match pubkey".into(),
+        ));
+    }
+
+    let mut key = derive_key(
+        password,
+        &salt,
+        entry.kdf.memory_kb,
+        entry.kdf.iterations,
+        entry.kdf.parallelism,
+    )?;
+    // Only AES-256-GCM is accepted (the sole cipher any conformant tool
+    // writes). Single error for wrong-password AND tamper (no oracle).
+    // No AAD.
+    if entry.cipher != "aes-256-gcm" {
         key.zeroize();
-
-        if plaintext.len() != FALCON_SECRET_LEN {
-            return Err(SdkError::InvalidArgument(format!(
-                "decrypted secret is {} bytes, expected {FALCON_SECRET_LEN}",
-                plaintext.len()
-            )));
-        }
-        let mut sk_bytes = [0u8; FALCON_SECRET_LEN];
-        sk_bytes.copy_from_slice(&plaintext);
-        // Don't leave the plaintext buffer holding secret bytes.
-        let mut zeroable = plaintext;
-        zeroable.zeroize();
-
-        Ok((pubkey, FalconSecret::new(sk_bytes)))
+        return Err(SdkError::InvalidArgument(format!(
+            "unsupported cipher suite: {}",
+            entry.cipher
+        )));
     }
+    let plaintext = aes_decrypt(&key, &nonce_bytes, &ciphertext);
+    key.zeroize();
+    let secret = secret_from_plaintext(plaintext?)?;
+    Ok((pubkey, secret))
 }
 
-// ── Helpers ────────────────────────────────────────────────────
-
-/// Derive a 32-byte AES key from `password` + `salt` via argon2id
-/// with the default parameters ([`ARGON2_M_KIB`], [`ARGON2_T`],
-/// [`ARGON2_P`]).
-fn derive_aes_key(password: &str, salt: &[u8]) -> Result<[u8; AES_KEY_LEN], SdkError> {
-    derive_aes_key_with_params(password, salt, ARGON2_M_KIB, ARGON2_T, ARGON2_P)
+/// AES-256-GCM decrypt with no associated data. Single error variant.
+fn aes_decrypt(
+    key: &[u8; AES_KEY_LEN],
+    nonce: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, SdkError> {
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|e| SdkError::Other(format!("AES key init failed: {e}")))?;
+    cipher
+        .decrypt(Nonce::from_slice(nonce), ciphertext)
+        .map_err(|_| {
+            SdkError::InvalidArgument("decrypt failed — bad password or corrupt keystore".into())
+        })
 }
 
-/// Derive a 32-byte AES key from `password` + `salt` under the given
-/// argon2id parameters. Used by the keystore's decrypt path so a
-/// keystore stamped with different params still decrypts.
-fn derive_aes_key_with_params(
+/// Convert a decrypted plaintext buffer into a [`FalconSecret`],
+/// checking the length and scrubbing the buffer.
+fn secret_from_plaintext(plaintext: Vec<u8>) -> Result<FalconSecret, SdkError> {
+    if plaintext.len() != FALCON_SECRET_LEN {
+        return Err(SdkError::InvalidArgument(format!(
+            "decrypted secret is {} bytes, expected {FALCON_SECRET_LEN}",
+            plaintext.len()
+        )));
+    }
+    let mut sk_bytes = [0u8; FALCON_SECRET_LEN];
+    sk_bytes.copy_from_slice(&plaintext);
+    let mut zeroable = plaintext;
+    zeroable.zeroize();
+    Ok(FalconSecret::new(sk_bytes))
+}
+
+/// Derive a 32-byte key from `password` + `salt` via Argon2id (version
+/// 0x13) under the given parameters. Byte-identical to
+/// `otigen-wallet::kdf::derive` for the pinned parameters.
+fn derive_key(
     password: &str,
     salt: &[u8],
     m_kib: u32,
@@ -459,6 +611,41 @@ fn decode_hex_var(s: &str, label: &str) -> Result<Vec<u8>, SdkError> {
     hex::decode(stripped).map_err(|e| SdkError::InvalidArgument(format!("bad {label} hex: {e}")))
 }
 
+// ── Legacy nested keystore (this SDK, 0.1.0) ───────────────────
+
+/// The nested single-account keystore this SDK wrote at `0.1.0`. Read
+/// only, for migration. Distinct shape: `kdf.params.{m,t,p,salt}` and a
+/// nested `cipher` object, with the address bound as AEAD AAD.
+#[derive(Deserialize)]
+struct LegacyKeystore {
+    version: u32,
+    address: String,
+    pubkey: String,
+    kdf: LegacyKdf,
+    cipher: LegacyCipher,
+}
+
+#[derive(Deserialize)]
+struct LegacyKdf {
+    name: String,
+    params: LegacyArgon2Params,
+}
+
+#[derive(Deserialize)]
+struct LegacyArgon2Params {
+    m: u32,
+    t: u32,
+    p: u32,
+    salt: String,
+}
+
+#[derive(Deserialize)]
+struct LegacyCipher {
+    name: String,
+    nonce: String,
+    ciphertext: String,
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -466,30 +653,11 @@ mod tests {
     use super::*;
     use crate::tx::{tx_hash, TxBuilder};
 
-    /// Pin: `Wallet` must implement `Drop` (transitively through
-    /// `FalconSecret::ZeroizeOnDrop`). If this regresses, the
-    /// secret-key buffer would survive on the heap after Wallet
-    /// goes out of scope — a silent security regression that no
-    /// other test would catch.
     #[test]
     fn wallet_drop_wipes_secret() {
-        assert!(
-            core::mem::needs_drop::<Wallet>(),
-            "Wallet must implement Drop so the inner FalconSecret \
-             is zeroed when Wallet goes out of scope",
-        );
-        assert!(
-            core::mem::needs_drop::<LocalSigner>(),
-            "LocalSigner must implement Drop for the same reason",
-        );
-        assert!(
-            core::mem::needs_drop::<FalconSecret>(),
-            "FalconSecret must implement Drop (via ZeroizeOnDrop) — \
-             the root of the zeroize chain",
-        );
-
-        // Smoke-test the full create+drop cycle a few times; if the
-        // Drop impl has UB or panics, this surfaces it.
+        assert!(core::mem::needs_drop::<Wallet>());
+        assert!(core::mem::needs_drop::<LocalSigner>());
+        assert!(core::mem::needs_drop::<FalconSecret>());
         for _ in 0..16 {
             let w = Wallet::generate().unwrap();
             let _addr = w.address();
@@ -519,59 +687,95 @@ mod tests {
         let address = wallet.address();
         let pubkey = wallet.pubkey();
         let pw = "correct horse battery staple";
-        let ks = wallet.to_keystore(pw).unwrap();
-        let restored = Wallet::from_keystore(&ks, pw).unwrap();
+        let ks = wallet.to_keystore("acct", pw).unwrap();
+        let restored = Wallet::from_keystore(&ks, "acct", pw).unwrap();
         assert_eq!(restored.address(), address);
         assert_eq!(restored.pubkey(), pubkey);
     }
 
     #[test]
+    fn keystore_uses_canonical_params_and_shape() {
+        let wallet = Wallet::generate().unwrap();
+        let ks = wallet.to_keystore("acct", "pw").unwrap();
+        assert_eq!(ks.version, KEYSTORE_VERSION);
+        let entry = ks.accounts.get("acct").unwrap();
+        assert_eq!(entry.cipher, "aes-256-gcm");
+        assert_eq!(entry.kdf.name, "argon2id");
+        assert_eq!(entry.kdf.memory_kb, 65_536);
+        assert_eq!(entry.kdf.iterations, 3);
+        assert_eq!(entry.kdf.parallelism, 4);
+        assert!(entry.salt.starts_with("0x"));
+        assert!(entry.nonce.starts_with("0x"));
+        assert!(entry.ciphertext.starts_with("0x"));
+    }
+
+    #[test]
     fn keystore_wrong_password_fails() {
         let wallet = Wallet::generate().unwrap();
-        let ks = wallet.to_keystore("right password").unwrap();
-        let err = Wallet::from_keystore(&ks, "wrong password").unwrap_err();
+        let ks = wallet.to_keystore("acct", "right password").unwrap();
+        let err = Wallet::from_keystore(&ks, "acct", "wrong password").unwrap_err();
         assert!(matches!(err, SdkError::InvalidArgument(_)));
     }
 
     #[test]
-    fn keystore_tamper_address_fails() {
+    fn keystore_unknown_account_fails() {
         let wallet = Wallet::generate().unwrap();
-        let mut ks = wallet.to_keystore("pw").unwrap();
-        // Flip a hex digit in the address — GCM AAD binding makes
-        // this fail at decrypt time.
-        let mut chars: Vec<char> = ks.address.chars().collect();
-        let idx = chars.len() - 4;
-        chars[idx] = if chars[idx] == '0' { '1' } else { '0' };
-        ks.address = chars.into_iter().collect();
-        assert!(Wallet::from_keystore(&ks, "pw").is_err());
+        let ks = wallet.to_keystore("acct", "pw").unwrap();
+        assert!(Wallet::from_keystore(&ks, "nope", "pw").is_err());
     }
 
     #[test]
     fn keystore_json_round_trip() {
         let wallet = Wallet::generate().unwrap();
-        let ks = wallet.to_keystore("pw").unwrap();
+        let ks = wallet.to_keystore("acct", "pw").unwrap();
         let json = serde_json::to_string(&ks).unwrap();
-        let parsed: Keystore = serde_json::from_str(&json).unwrap();
-        let restored = Wallet::from_keystore(&parsed, "pw").unwrap();
+        let restored = Wallet::from_keystore_json(&json, "acct", "pw").unwrap();
         assert_eq!(restored.address(), wallet.address());
+    }
+
+    #[test]
+    fn multi_account_vault() {
+        let a = Wallet::generate().unwrap();
+        let b = Wallet::generate().unwrap();
+        let mut ks = a.to_keystore("a", "pw").unwrap();
+        b.add_to_keystore(&mut ks, "b", "pw").unwrap();
+        assert_eq!(ks.account_names().len(), 2);
+        assert_eq!(
+            Wallet::from_keystore(&ks, "a", "pw").unwrap().address(),
+            a.address()
+        );
+        assert_eq!(
+            Wallet::from_keystore(&ks, "b", "pw").unwrap().address(),
+            b.address()
+        );
     }
 
     #[test]
     fn keystore_different_writes_differ() {
         let wallet = Wallet::generate().unwrap();
-        let a = wallet.to_keystore("pw").unwrap();
-        let b = wallet.to_keystore("pw").unwrap();
-        // Fresh random salt + nonce per write — ciphertexts differ.
-        assert_ne!(a.cipher.ciphertext, b.cipher.ciphertext);
-        assert_ne!(a.kdf.params.salt, b.kdf.params.salt);
-        assert_ne!(a.cipher.nonce, b.cipher.nonce);
+        let a = wallet.to_keystore("x", "pw").unwrap();
+        let b = wallet.to_keystore("x", "pw").unwrap();
+        let ea = a.accounts.get("x").unwrap();
+        let eb = b.accounts.get("x").unwrap();
+        assert_ne!(ea.ciphertext, eb.ciphertext);
+        assert_ne!(ea.salt, eb.salt);
+        assert_ne!(ea.nonce, eb.nonce);
+    }
+
+    #[test]
+    fn rejects_below_floor_kdf() {
+        let wallet = Wallet::generate().unwrap();
+        let mut ks = wallet.to_keystore("acct", "pw").unwrap();
+        // Weaken the parallelism below the floor — must be rejected.
+        ks.accounts.get_mut("acct").unwrap().kdf.parallelism = 1;
+        assert!(Wallet::from_keystore(&ks, "acct", "pw").is_err());
     }
 
     #[test]
     fn unsupported_version_rejected() {
         let wallet = Wallet::generate().unwrap();
-        let mut ks = wallet.to_keystore("pw").unwrap();
+        let mut ks = wallet.to_keystore("acct", "pw").unwrap();
         ks.version = 999;
-        assert!(Wallet::from_keystore(&ks, "pw").is_err());
+        assert!(Wallet::from_keystore(&ks, "acct", "pw").is_err());
     }
 }
