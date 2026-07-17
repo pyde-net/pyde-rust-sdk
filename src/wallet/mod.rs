@@ -54,12 +54,15 @@
 //! - **Encrypted payload**: only the 1281-byte FALCON-512 secret key.
 //!   The public key and address are stored in the clear.
 //!
-//! The reader is param-agile per the spec: it reads each entry with its
-//! own stored Argon2id parameters, accepts only the `aes-256-gcm` cipher
-//! suite, and rejects any KDF weaker than the Argon2id floor (downgrade
-//! hygiene). [`Wallet::from_keystore_json`] additionally reads the older
-//! nested single-account keystore this SDK wrote at `0.1.0`, so those
-//! keep opening.
+//! The reader is param-agile: it derives each entry with that entry's
+//! own stored Argon2id parameters and accepts only the `aes-256-gcm`
+//! cipher suite. It applies an anti-DoS **upper** clamp on the KDF
+//! parameters (a crafted `memory_kb` would otherwise force a multi-GiB
+//! allocation) but deliberately imposes no lower floor, matching the
+//! reference implementations, so a legitimately-owned below-floor
+//! keystore still opens. [`Wallet::from_keystore_json`] additionally
+//! reads the older nested single-account keystore this SDK wrote at
+//! `0.1.0`.
 
 use std::collections::BTreeMap;
 
@@ -186,8 +189,8 @@ impl Wallet {
     /// # Errors
     /// - [`SdkError::InvalidArgument`] if the vault version is
     ///   unsupported, the account name is absent, the KDF is not
-    ///   Argon2id or is below the parameter floor, the cipher suite is
-    ///   not allowlisted, hex is malformed, or the password is wrong.
+    ///   Argon2id or exceeds the accepted upper bound, the cipher suite
+    ///   is not `aes-256-gcm`, hex is malformed, or the password is wrong.
     /// - [`SdkError::Signing`] on a pubkey/secret mismatch.
     pub fn from_keystore(
         keystore: &Keystore,
@@ -343,6 +346,18 @@ pub const ARGON2_ITERATIONS: u32 = 3;
 /// Argon2id parallelism (lanes) — the pinned floor.
 pub const ARGON2_PARALLELISM: u32 = 4;
 
+/// Anti-DoS upper bound on `memory_kb` accepted from an untrusted
+/// keystore (1 GiB). Matches the reference implementations' clamp.
+pub const ARGON2_MAX_MEMORY_KB: u32 = 1_048_576;
+
+/// Anti-DoS upper bound on `iterations` accepted from an untrusted
+/// keystore. Matches the reference implementations' clamp.
+pub const ARGON2_MAX_ITERATIONS: u32 = 16;
+
+/// Anti-DoS upper bound on `parallelism` accepted from an untrusted
+/// keystore. Matches the reference implementations' clamp.
+pub const ARGON2_MAX_PARALLELISM: u32 = 16;
+
 /// AES-256-GCM key length in bytes.
 const AES_KEY_LEN: usize = 32;
 
@@ -492,19 +507,25 @@ fn decrypt_entry(
     entry: &KeystoreEntry,
     password: &str,
 ) -> Result<(FalconPubkey, FalconSecret), SdkError> {
-    // KDF binding + downgrade hygiene: only Argon2id, never below floor.
+    // Only Argon2id is recognised.
     if entry.kdf.name != "argon2id" {
         return Err(SdkError::InvalidArgument(format!(
             "unsupported KDF: {}",
             entry.kdf.name
         )));
     }
-    if entry.kdf.memory_kb < ARGON2_MEMORY_KB
-        || entry.kdf.iterations < ARGON2_ITERATIONS
-        || entry.kdf.parallelism < ARGON2_PARALLELISM
+    // Anti-DoS upper clamp on params read from an untrusted file — a
+    // crafted `memory_kb` would otherwise force a multi-GiB allocation.
+    // There is deliberately NO lower floor reject: bricking a
+    // legitimately-owned below-floor keystore helps nobody, and writers
+    // always emit the floor (64 MiB / 3 / 4). Bounds match the reference
+    // implementations.
+    if entry.kdf.memory_kb > ARGON2_MAX_MEMORY_KB
+        || entry.kdf.iterations > ARGON2_MAX_ITERATIONS
+        || entry.kdf.parallelism > ARGON2_MAX_PARALLELISM
     {
         return Err(SdkError::InvalidArgument(
-            "keystore KDF parameters are below the Argon2id floor".into(),
+            "keystore KDF parameters exceed the accepted upper bound".into(),
         ));
     }
 
@@ -763,12 +784,54 @@ mod tests {
     }
 
     #[test]
-    fn rejects_below_floor_kdf() {
+    fn rejects_above_clamp_kdf() {
         let wallet = Wallet::generate().unwrap();
         let mut ks = wallet.to_keystore("acct", "pw").unwrap();
-        // Weaken the parallelism below the floor — must be rejected.
-        ks.accounts.get_mut("acct").unwrap().kdf.parallelism = 1;
-        assert!(Wallet::from_keystore(&ks, "acct", "pw").is_err());
+        // Above the anti-DoS upper bound (2 GiB > 1 GiB) — must be
+        // rejected before any allocation.
+        ks.accounts.get_mut("acct").unwrap().kdf.memory_kb = 2_097_152;
+        let err = Wallet::from_keystore(&ks, "acct", "pw").unwrap_err();
+        assert!(matches!(err, SdkError::InvalidArgument(ref m) if m.contains("upper bound")));
+    }
+
+    #[test]
+    fn accepts_below_floor_keystore() {
+        // A legitimately-owned keystore sealed with below-floor params
+        // (m=8 MiB, t=1, p=1) must still open — no lower floor reject.
+        let wallet = Wallet::generate().unwrap();
+        let pw = "pw";
+        let (m, t, p) = (8 * 1024, 1, 1);
+        let mut salt = [0u8; SALT_LEN];
+        let mut nonce = [0u8; AES_NONCE_LEN];
+        rand::thread_rng().fill_bytes(&mut salt);
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let key = derive_key(pw, &salt, m, t, p).unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let ct = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                &wallet.signer().secret().as_bytes()[..],
+            )
+            .unwrap();
+        let addr = wallet.address();
+        let entry = KeystoreEntry {
+            address: addr.to_hex(),
+            pubkey: wallet.pubkey().to_hex(),
+            ciphertext: format!("0x{}", hex::encode(&ct)),
+            salt: format!("0x{}", hex::encode(salt)),
+            nonce: format!("0x{}", hex::encode(nonce)),
+            cipher: "aes-256-gcm".into(),
+            kdf: KdfParams {
+                name: "argon2id".into(),
+                memory_kb: m,
+                iterations: t,
+                parallelism: p,
+            },
+        };
+        let mut ks = Keystore::new();
+        ks.accounts.insert("acct".into(), entry);
+        let restored = Wallet::from_keystore(&ks, "acct", pw).unwrap();
+        assert_eq!(restored.address(), addr);
     }
 
     #[test]

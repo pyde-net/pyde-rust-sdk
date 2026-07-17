@@ -26,8 +26,11 @@ pre-1.0 may have breaking changes at any minor bump (see
   `Keystore::account_names`, and `KeystoreEntry` / `KdfParams` are public.
 - **Migration:** `Wallet::from_keystore_json` reads both the canonical
   vault and the older nested single-account keystore this SDK wrote at
-  `0.1.0`, so existing files keep opening. The reader enforces the
-  Argon2id floor (downgrade hygiene) and accepts only `aes-256-gcm`.
+  `0.1.0`, so existing files keep opening. The reader accepts only
+  `aes-256-gcm` and applies an anti-DoS upper clamp on the KDF params
+  (`memory_kb ≤ 1 GiB`, `iterations ≤ 16`, `parallelism ≤ 16`, matching
+  the reference implementations); it imposes no lower floor, so a
+  legitimately-owned below-floor keystore still opens.
 - Cross-impl parity is pinned by `tests/keystore_parity.rs`, which
   decrypts an `otigen`-CLI-minted golden keystore.
 
