@@ -199,7 +199,7 @@ fn load_avg_1m() -> Option<f64> {
     // "... load average(s): 3.16 3.53 3.61"
     let idx = s.find("load average").map(|i| i + "load average".len())?;
     let tail = &s[idx..];
-    tail.split(|c: char| c == ':' || c == 's')
+    tail.split([':', 's'])
         .flat_map(|seg| seg.split([' ', ',']))
         .find_map(|tok| tok.trim().parse::<f64>().ok())
 }

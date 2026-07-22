@@ -59,6 +59,7 @@ pub mod abi;
 pub mod constants;
 pub mod contract;
 pub mod error;
+pub mod factory;
 pub mod multisig;
 pub mod provider;
 pub mod signer;
@@ -72,6 +73,7 @@ pub mod ws;
 
 pub use contract::{pyde_abi, Contract, DecodedEvent};
 pub use error::{Result, SdkError};
+pub use factory::{child_address, child_preimage, Instantiated, Salt};
 pub use provider::{
     HttpProvider, HttpTransport, PendingTx, PrivateSendHandle, Provider, RootProvider, Transport,
 };
