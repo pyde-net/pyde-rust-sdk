@@ -8,6 +8,8 @@ pre-1.0 may have breaking changes at any minor bump (see
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-22
+
 ### Added
 - **Factory-pattern off-chain surface** — new `factory`
   module (re-exported at the crate root) covering everything a
@@ -318,6 +320,7 @@ the earlier threshold-encryption design was removed before publication.
   quickstart, concepts, wallets, transactions, providers, contracts,
   events, errors, multisig, examples, compatibility.
 
-[Unreleased]: https://github.com/pyde-net/pyde-rust-sdk/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/pyde-net/pyde-rust-sdk/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.1.0
