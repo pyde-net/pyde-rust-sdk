@@ -9,7 +9,7 @@ pre-1.0 may have breaking changes at any minor bump (see
 ## [Unreleased]
 
 ### Added
-- **Factory-pattern (PIP-0006) off-chain surface** — new `factory`
+- **Factory-pattern off-chain surface** — new `factory`
   module (re-exported at the crate root) covering everything a
   wallet/script/indexer needs around `pyde::instantiate`:
   - `child_address(parent, template, salt)` — the canonical child
