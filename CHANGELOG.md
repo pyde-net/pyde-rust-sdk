@@ -6,6 +6,36 @@ follows [SemVer](https://semver.org/), with the caveat that everything
 pre-1.0 may have breaking changes at any minor bump (see
 [docs/12-compatibility.md](docs/12-compatibility.md#msrv--semver-intent)).
 
+## [Unreleased]
+
+### Added
+- **Factory-pattern (PIP-0006) off-chain surface** — new `factory`
+  module (re-exported at the crate root) covering everything a
+  wallet/script/indexer needs around `pyde::instantiate`:
+  - `child_address(parent, template, salt)` — the canonical child
+    derivation `Poseidon2("pyde-child:" ‖ parent ‖ template ‖ salt)`,
+    byte-identical to the engine's. Compute a child's counterfactual
+    address before it exists, offline, from public inputs only.
+  - `child_preimage(...)` — the 107-byte fixed-width preimage,
+    exposed for tooling.
+  - `Salt::of(&value)` — identity salt: `Poseidon2(borsh(value))`
+    for any `BorshSerialize` type (counters, names, config tuples).
+  - `Salt::of_unordered_pair(a, b)` — symmetric-market salt: the two
+    addresses sorted ascending bytewise (unsigned), concatenated raw,
+    hashed. Same pool address regardless of token listing order.
+  - `Instantiated` event decoder (`decode` / `TryFrom<&Event>`) for
+    the provenance event the engine emits on every successful
+    `pyde::instantiate`, with the pinned topic-0
+    `factory::INSTANTIATED_TOPIC` = `Blake3("pyde.Instantiated")`.
+    Rejects wrong topic-0, wrong topic count, wrong data length, and
+    an emitter that doesn't match the recorded parent.
+  - Conformance pinned by a full replay of the shared golden vectors
+    (`tests/fixtures/child_address.golden.json`, a verbatim copy of
+    the canonical `pyde-host/vectors/child_address.json`) — preimage
+    assembly, the Poseidon2 hash itself, identity salts including
+    the empty-borsh case, and the unordered-pair sort including the
+    0x7f/0x80 sign-boundary vector.
+
 ## [0.2.0] — 2026-07-17
 
 ### Changed (BREAKING) — canonical keystore format
@@ -288,6 +318,6 @@ the earlier threshold-encryption design was removed before publication.
   quickstart, concepts, wallets, transactions, providers, contracts,
   events, errors, multisig, examples, compatibility.
 
-[Unreleased]: https://github.com/pyde-net/pyde-rust-sdk/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pyde-net/pyde-rust-sdk/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pyde-net/pyde-rust-sdk/releases/tag/v0.1.0

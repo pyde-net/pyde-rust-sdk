@@ -1,0 +1,142 @@
+{
+  "_meta": {
+    "description": "Golden conformance vectors for the Pyde factory (PIP-0006) child-address derivation. Every implementation (engine, 4 language bindings, rust/ts SDKs, CLI) must reproduce every vector byte-for-byte.",
+    "derivation": "child_address = Poseidon2(\"pyde-child:\" || parent[32] || template[32] || salt[32]); preimage is 107 bytes fixed-width, no length prefixes, no separators.",
+    "poseidon2": "pyde-crypto Poseidon2: PaddingFreeSponge over Goldilocks, WIDTH=8 RATE=4 OUT=4, HL round constants; input packed as 7-byte LE chunks (one field element each) plus a trailing input-length element (empty input = single zero element, no length element); output = 4 canonical u64, little-endian, 32 bytes.",
+    "salt_rule": "Vectors with salt_source_borsh are identity salts: salt = Poseidon2(salt_source_borsh), where salt_source_borsh is the borsh encoding of the typed value described in salt_source_typed (Salt::of). Vectors without it use the raw salt bytes verbatim. Unordered pairs: sort the two 32-byte values ascending BYTEWISE (lexicographic), then concatenate (raw 64 bytes, no framing) — salt_source_pair_args records the args deliberately UNSORTED so replaying from them requires implementing the sort.",
+    "anchor": "engine-kat-anchor reproduces the engine's pinned KAT in pyde-net/engine crates/account/src/address.rs (child_address_kat_pins_derivation).",
+    "regenerate": "cargo test -p pyde-host regenerate_golden_vectors -- --ignored"
+  },
+  "vectors": [
+    {
+      "name": "engine-kat-anchor",
+      "parent": "1111111111111111111111111111111111111111111111111111111111111111",
+      "template": "2222222222222222222222222222222222222222222222222222222222222222",
+      "salt": "3333333333333333333333333333333333333333333333333333333333333333",
+      "preimage": "707964652d6368696c643a111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333",
+      "child_address": "354ab9a58e3fb76b484390a2ef277594042e12fd0b74343e5bf34dba492f3dfe"
+    },
+    {
+      "name": "all-zero",
+      "parent": "0000000000000000000000000000000000000000000000000000000000000000",
+      "template": "0000000000000000000000000000000000000000000000000000000000000000",
+      "salt": "0000000000000000000000000000000000000000000000000000000000000000",
+      "preimage": "707964652d6368696c643a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "child_address": "37414e62bb1d730ec3b0ff0c4e18a2813ce666cbcfc347065c73763eec9a3e3e"
+    },
+    {
+      "name": "all-max",
+      "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "template": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "salt": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "preimage": "707964652d6368696c643affffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "child_address": "160b375f7979dc3519e0410a6b434652dcc7ba69b3ec6ab3565bce3a0c59ea2d"
+    },
+    {
+      "name": "field-order-guard",
+      "parent": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "template": "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100",
+      "salt": "5555555555555555555555555555555555555555555555555555555555555555",
+      "preimage": "707964652d6368696c643a000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a090807060504030201005555555555555555555555555555555555555555555555555555555555555555",
+      "child_address": "8a54ace9990c86a40b392c65aaeaa80192d1e67b99ed082cfe75ea72d82ae8aa"
+    },
+    {
+      "name": "salt-of-unit-empty-borsh",
+      "parent": "1111111111111111111111111111111111111111111111111111111111111111",
+      "template": "2222222222222222222222222222222222222222222222222222222222222222",
+      "salt_source_typed": "the unit value () — borsh encodes to ZERO bytes; pins the empty-input Poseidon2 rule (single zero field element, no length element)",
+      "salt_source_borsh": "",
+      "salt": "1012512f56ef7d3aa0766475f9fa0aab140aff69c25caf8fba41cd7cc88f81d6",
+      "preimage": "707964652d6368696c643a111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222221012512f56ef7d3aa0766475f9fa0aab140aff69c25caf8fba41cd7cc88f81d6",
+      "child_address": "3a2529c9ad205e01f69c169b425ed56e7defb278ccc2153f446ff9a012ed2cac"
+    },
+    {
+      "name": "salt-of-counter-0",
+      "parent": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "template": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "salt_source_typed": "0u64 — borsh: 8-byte little-endian (a u64 counter, NOT two u32s)",
+      "salt_source_borsh": "0000000000000000",
+      "salt": "7daf6240d6321d7a417e80699d03060779a40979a9de22c74febaa6acca874e8",
+      "preimage": "707964652d6368696c643aa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b27daf6240d6321d7a417e80699d03060779a40979a9de22c74febaa6acca874e8",
+      "child_address": "442e147493bec2524792da156844c7848818e8c0e10cad3d80c6994b870b5494"
+    },
+    {
+      "name": "salt-of-counter-1",
+      "parent": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "template": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "salt_source_typed": "1u64 — borsh: 8-byte little-endian",
+      "salt_source_borsh": "0100000000000000",
+      "salt": "95fdf3cfd303fa0c94b5758ee540165dfd84f718b5fd06889cfd6abb8147d93a",
+      "preimage": "707964652d6368696c643aa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b295fdf3cfd303fa0c94b5758ee540165dfd84f718b5fd06889cfd6abb8147d93a",
+      "child_address": "e3a1c9ae8cee35a1b27f73ad9ab50e4981a719aacf8064a9c5dcd9c5bf6c0161"
+    },
+    {
+      "name": "salt-of-i128-neg-one",
+      "parent": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "template": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      "salt_source_typed": "-1i128 — borsh: 16-byte little-endian two's complement (16 x 0xff; deliberately byte-aliases u128::MAX — signedness is a TYPE property, not a wire property)",
+      "salt_source_borsh": "ffffffffffffffffffffffffffffffff",
+      "salt": "03ba4c94a27962ef2c517799da26fa15efa6adaec0ca42e4b570a0ea6d80838a",
+      "preimage": "707964652d6368696c643ac3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d403ba4c94a27962ef2c517799da26fa15efa6adaec0ca42e4b570a0ea6d80838a",
+      "child_address": "6dd593e5286c96c3a234bb9dbf1c373de947a86c7bf6205b1d28b4b41e9a26cf"
+    },
+    {
+      "name": "salt-of-i128-min",
+      "parent": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "template": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      "salt_source_typed": "i128::MIN — borsh: 16-byte little-endian two's complement (15 x 0x00 then 0x80)",
+      "salt_source_borsh": "00000000000000000000000000000080",
+      "salt": "9a7d3de86200185f0a87a57e1aa8ba581eb7179304467e94becd833153424591",
+      "preimage": "707964652d6368696c643ac3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d49a7d3de86200185f0a87a57e1aa8ba581eb7179304467e94becd833153424591",
+      "child_address": "c0fdb74b55367aa8646275cead906db8df3f46b1f9b273d1c4923b04a811a0d6"
+    },
+    {
+      "name": "salt-of-string",
+      "parent": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      "template": "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6",
+      "salt_source_typed": "the string \"amm-pool-v1\" — borsh string: u32 LE byte length (11) then the UTF-8 bytes",
+      "salt_source_borsh": "0b000000616d6d2d706f6f6c2d7631",
+      "salt": "2b1121480aae996f0a5d3e44b32df0a3ad43cb590ce8a953ca03202aa46ccfb8",
+      "preimage": "707964652d6368696c643ae5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f62b1121480aae996f0a5d3e44b32df0a3ad43cb590ce8a953ca03202aa46ccfb8",
+      "child_address": "52dbae31bb59c20640211f8cce3977fdaf52d51d66c53a857907f0c7721e193a"
+    },
+    {
+      "name": "salt-of-unordered-pair",
+      "parent": "1111111111111111111111111111111111111111111111111111111111111111",
+      "template": "2222222222222222222222222222222222222222222222222222222222222222",
+      "salt_source_typed": "of_unordered_pair(a, b): sort the two 32-byte values ascending BYTEWISE (lexicographic), concatenate (raw 64 bytes, no framing), hash. pair_args holds (a, b) as passed — unsorted on purpose.",
+      "salt_source_borsh": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "salt_source_pair_args": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "salt": "0daff4768a828592634529902839ffdbc62285ab633584137b6d37805bb475c3",
+      "preimage": "707964652d6368696c643a111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222220daff4768a828592634529902839ffdbc62285ab633584137b6d37805bb475c3",
+      "child_address": "0a6b54ee39f7d41780d8f8b768d0087b40ac82fe6466bb28054818540dbcd8d1"
+    },
+    {
+      "name": "salt-of-unordered-pair-sign-boundary",
+      "parent": "3333333333333333333333333333333333333333333333333333333333333333",
+      "template": "4444444444444444444444444444444444444444444444444444444444444444",
+      "salt_source_typed": "of_unordered_pair(a=0x80 x 32, b=0x7f x 32): the sort is UNSIGNED bytewise, so 0x7f sorts FIRST. A signed (i8) comparator reverses these two — this vector exists to catch exactly that.",
+      "salt_source_borsh": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f8080808080808080808080808080808080808080808080808080808080808080",
+      "salt_source_pair_args": [
+        "8080808080808080808080808080808080808080808080808080808080808080",
+        "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+      ],
+      "salt": "b75dd0928036a911f55044c972c90a7db50633c7f7173d9947c5ea54d1f3f483",
+      "preimage": "707964652d6368696c643a33333333333333333333333333333333333333333333333333333333333333334444444444444444444444444444444444444444444444444444444444444444b75dd0928036a911f55044c972c90a7db50633c7f7173d9947c5ea54d1f3f483",
+      "child_address": "b5646a00de683e45403f9b83f9c2db45925608d2322052b5526752f550c5a77e"
+    },
+    {
+      "name": "salt-of-mixed-tuple",
+      "parent": "7777777777777777777777777777777777777777777777777777777777777777",
+      "template": "8888888888888888888888888888888888888888888888888888888888888888",
+      "salt_source_typed": "the tuple ([0xcc; 32], 42u64, true) — borsh tuple is FRAMELESS field concatenation: raw 32 bytes, then 8-byte LE 42, then 0x01 for true",
+      "salt_source_borsh": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc2a0000000000000001",
+      "salt": "be4ac41718fe8c486d8d8e53572aca3d1d9236725ea9d2c452777f2c1ddb8b3a",
+      "preimage": "707964652d6368696c643a77777777777777777777777777777777777777777777777777777777777777778888888888888888888888888888888888888888888888888888888888888888be4ac41718fe8c486d8d8e53572aca3d1d9236725ea9d2c452777f2c1ddb8b3a",
+      "child_address": "c52498798b7fe9831297508375e71eb37ce1c2fef16c53e4db164370768afb29"
+    }
+  ]
+}
