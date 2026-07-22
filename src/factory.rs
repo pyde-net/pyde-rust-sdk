@@ -1,4 +1,4 @@
-//! Factory-pattern (PIP-0006) off-chain surface.
+//! Factory-pattern off-chain surface.
 //!
 //! A contract (the FACTORY) instantiates a child contract by
 //! reference to a deployed TEMPLATE via the `pyde::instantiate` host
@@ -30,8 +30,8 @@ use crate::types::{Address, Event};
 
 // ── Child-address derivation ───────────────────────────────────
 
-/// Domain-separator prefix for factory-instantiated child addresses
-/// (PIP-0006). Exactly 11 bytes; keeps [`child_address`] disjoint
+/// Domain-separator prefix for factory-instantiated child addresses.
+/// Exactly 11 bytes; keeps [`child_address`] disjoint
 /// from every other address family (EOA raw-pubkey,
 /// `"pyde-contract:"` names, raw system names). Mirrors the engine's
 /// `CHILD_ADDRESS_PREFIX`.

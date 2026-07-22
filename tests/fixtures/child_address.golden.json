@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Golden conformance vectors for the Pyde factory (PIP-0006) child-address derivation. Every implementation (engine, 4 language bindings, rust/ts SDKs, CLI) must reproduce every vector byte-for-byte.",
+    "description": "Golden conformance vectors for the Pyde factory child-address derivation. Every implementation (engine, 4 language bindings, rust/ts SDKs, CLI) must reproduce every vector byte-for-byte.",
     "derivation": "child_address = Poseidon2(\"pyde-child:\" || parent[32] || template[32] || salt[32]); preimage is 107 bytes fixed-width, no length prefixes, no separators.",
     "poseidon2": "pyde-crypto Poseidon2: PaddingFreeSponge over Goldilocks, WIDTH=8 RATE=4 OUT=4, HL round constants; input packed as 7-byte LE chunks (one field element each) plus a trailing input-length element (empty input = single zero element, no length element); output = 4 canonical u64, little-endian, 32 bytes.",
     "salt_rule": "Vectors with salt_source_borsh are identity salts: salt = Poseidon2(salt_source_borsh), where salt_source_borsh is the borsh encoding of the typed value described in salt_source_typed (Salt::of). Vectors without it use the raw salt bytes verbatim. Unordered pairs: sort the two 32-byte values ascending BYTEWISE (lexicographic), then concatenate (raw 64 bytes, no framing) — salt_source_pair_args records the args deliberately UNSORTED so replaying from them requires implementing the sort.",

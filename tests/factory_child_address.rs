@@ -1,4 +1,4 @@
-//! Factory (PIP-0006) child-address conformance — full replay of the
+//! Factory child-address conformance — full replay of the
 //! shared golden vectors.
 //!
 //! The golden fixture (`tests/fixtures/child_address.golden.json`) is
