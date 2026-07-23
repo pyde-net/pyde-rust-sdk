@@ -359,9 +359,14 @@ pub struct AccountInfo {
     pub code_hash: String,
     /// Per-account storage root, hex. **Always all-zero in v1** by design
     /// (single global JMT, no per-account sub-trie; reserved for v2) — it
-    /// does not reflect whether a contract has written storage. Accepts the
-    /// deprecated `state_root` alias from older engines.
-    #[serde(alias = "state_root")]
+    /// does not reflect whether a contract has written storage.
+    ///
+    /// Read strictly from `storage_root`, NOT via a `state_root` alias: the
+    /// engine dual-emits both names for a transition (so pre-rename clients
+    /// still work), and a serde alias would map BOTH keys onto this one field
+    /// and fail with "duplicate field `storage_root`". `default` keeps a
+    /// hypothetical `storage_root`-less (very old) engine from erroring.
+    #[serde(default)]
     pub storage_root: String,
 }
 
@@ -741,18 +746,27 @@ mod tests {
 
     #[test]
     fn account_info_decodes_engine_shape() {
+        // The engine DUAL-EMITS both `storage_root` (accurate) and the
+        // deprecated `state_root` alias. Decoding must read `storage_root`
+        // and ignore the duplicate `state_root`: a serde alias would map
+        // BOTH keys onto one field and fail with "duplicate field".
         let raw = r#"{
             "address": "0xa1",
             "account_type": "eoa",
             "balance": "0x3b9aca00",
             "nonce": 7,
             "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "storage_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "state_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
         }"#;
         let a: AccountInfo = serde_json::from_str(raw).unwrap();
         assert_eq!(a.balance_quanta(), 1_000_000_000);
         assert_eq!(a.nonce, 7);
         assert!(!a.is_contract());
+        assert_eq!(
+            a.storage_root,
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+        );
     }
 
     // ── LogFilter serialisation ────────────────────────────────
