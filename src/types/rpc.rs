@@ -357,8 +357,12 @@ pub struct AccountInfo {
     pub nonce: u64,
     /// Poseidon2 code hash, hex. Zeroed for non-contracts.
     pub code_hash: String,
-    /// Contract storage root, hex. Zeroed for EOAs.
-    pub state_root: String,
+    /// Per-account storage root, hex. **Always all-zero in v1** by design
+    /// (single global JMT, no per-account sub-trie; reserved for v2) — it
+    /// does not reflect whether a contract has written storage. Accepts the
+    /// deprecated `state_root` alias from older engines.
+    #[serde(alias = "state_root")]
+    pub storage_root: String,
 }
 
 impl AccountInfo {
