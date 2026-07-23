@@ -8,6 +8,14 @@ pre-1.0 may have breaking changes at any minor bump (see
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-07-23
+
+### Changed
+- `AccountInfo.state_root` renamed to **`storage_root`** — matching the
+  engine's accurate name for the per-account root (a v1 stub: always
+  `0x0`, reserved for v2). Non-breaking: `#[serde(alias = "state_root")]`
+  keeps deserialization working against nodes that emit either name.
+
 ## [0.3.0] — 2026-07-22
 
 ### Added
