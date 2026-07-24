@@ -8,6 +8,17 @@ pre-1.0 may have breaking changes at any minor bump (see
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-07-24
+
+### Added
+- `Receipt.nonce` (hex) + `Receipt.commit_reveal` (`bool`), matching the engine's
+  new receipt fields, plus `Receipt::nonce_u64()` / `try_nonce_u64()` helpers
+  (mirroring `wave_id_u64`). For a **commit-reveal inner op**, `nonce` is the
+  INNER tx's nonce, so a lookup by the inner-op hash (not a standalone indexed
+  tx) reports it. `commit_reveal` is delayed-disclosure ordering protection,
+  **not confidentiality** — the op is public plaintext once revealed, so don't
+  label it "private". Both `#[serde(default)]` → empty/`false` on older nodes.
+
 ## [0.3.1] — 2026-07-23
 
 ### Changed

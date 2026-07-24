@@ -149,6 +149,8 @@ fn empty_receipt() -> Receipt {
         tx_hash: "0x00".into(),
         wave_id: "0x10".into(),
         tx_index: "0x2".into(),
+        nonce: "0x0".into(),
+        commit_reveal: false,
         status: ReceiptStatus::Success,
         gas_used: "0x5208".into(),
         fee_paid: "0xABCD".into(),
