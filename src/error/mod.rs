@@ -663,6 +663,8 @@ mod tests {
                 tx_hash: "0x".into(),
                 wave_id: "0x1".into(),
                 tx_index: "0x0".into(),
+                nonce: "0x0".into(),
+                commit_reveal: false,
                 status,
                 gas_used: "0x5208".into(),
                 fee_paid: "0x5208".into(),

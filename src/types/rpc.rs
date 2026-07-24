@@ -112,6 +112,16 @@ pub struct Receipt {
     pub wave_id: String,
     /// Position within the wave, hex.
     pub tx_index: String,
+    /// The tx author's nonce, hex. For a commit-reveal INNER op this is the
+    /// inner tx's nonce (so a lookup by inner-hash reports it). Empty on nodes
+    /// that predate the field.
+    #[serde(default)]
+    pub nonce: String,
+    /// `true` when this is a commit-reveal inner op — delayed-disclosure
+    /// ordering protection, NOT confidentiality (the op is public plaintext
+    /// once revealed). `false` for a plaintext tx / older nodes.
+    #[serde(default)]
+    pub commit_reveal: bool,
     /// Outcome class.
     pub status: ReceiptStatus,
     /// Gas actually charged, hex.
@@ -241,6 +251,20 @@ impl Receipt {
     /// [`crate::SdkError::InvalidResponse`] on bad hex.
     pub fn try_wave_id_u64(&self) -> Result<u64, crate::SdkError> {
         strict_u64_from_hex(&self.wave_id, "wave_id")
+    }
+
+    /// Decode `nonce` to `u64`. Returns `0` on malformed/absent input.
+    #[must_use]
+    pub fn nonce_u64(&self) -> u64 {
+        self.try_nonce_u64().unwrap_or(0)
+    }
+
+    /// Strict variant of [`Self::nonce_u64`].
+    ///
+    /// # Errors
+    /// [`crate::SdkError::InvalidResponse`] on bad hex.
+    pub fn try_nonce_u64(&self) -> Result<u64, crate::SdkError> {
+        strict_u64_from_hex(&self.nonce, "nonce")
     }
 
     /// Decode `tx_index` to `u32`. Returns `0` on malformed input.
@@ -711,6 +735,8 @@ mod tests {
             tx_hash: String::new(),
             wave_id: "0x0".into(),
             tx_index: "0x0".into(),
+            nonce: "0x0".into(),
+            commit_reveal: false,
             status: ReceiptStatus::Success,
             gas_used: String::new(),
             fee_paid: String::new(),
