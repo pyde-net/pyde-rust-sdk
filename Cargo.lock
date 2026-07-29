@@ -1865,6 +1865,8 @@ dependencies = [
 [[package]]
 name = "pyde-crypto"
 version = "0.1.0-testnet.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b505f70bcc1e7d478951d4ac90b30df89f734fffbe66d901944b4da7aaef4add"
 dependencies = [
  "falcon-rs",
  "p3-field",
