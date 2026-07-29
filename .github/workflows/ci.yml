@@ -24,11 +24,8 @@ jobs:
         run: cargo fmt --all -- --check
 
   # ── clippy ───────────────────────────────────────────────────
-  # Needs the sibling `pyde-crypto` repo (private) for the actual
-  # compile. The checkout step uses the `PYDE_REPO_TOKEN` secret to
-  # clone — set it in repo settings to enable green CI here. Without
-  # the secret this job runs but fails at the cargo step; we accept
-  # that until pyde-crypto opens up.
+  # Needs the sibling `pyde-crypto` repo for the actual compile.
+  # pyde-crypto is public, so the checkout needs no token.
   clippy:
     name: clippy
     runs-on: ubuntu-latest
@@ -41,8 +38,6 @@ jobs:
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
-          token: ${{ secrets.PYDE_REPO_TOKEN }}
-        continue-on-error: true
       - name: Install toolchain
         run: rustup show
       - name: Cache cargo
@@ -74,8 +69,6 @@ jobs:
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
-          token: ${{ secrets.PYDE_REPO_TOKEN }}
-        continue-on-error: true
       - name: Install Rust 1.75
         run: rustup toolchain install 1.75 --profile minimal
       - name: cargo +1.75 build --workspace
@@ -95,8 +88,6 @@ jobs:
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
-          token: ${{ secrets.PYDE_REPO_TOKEN }}
-        continue-on-error: true
       - name: Install toolchain
         run: rustup show
       - name: Cache cargo
@@ -145,8 +136,6 @@ jobs:
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
-          token: ${{ secrets.PYDE_REPO_TOKEN }}
-        continue-on-error: true
       - name: Install toolchain
         run: rustup show
       - name: cargo doc --workspace --no-deps
@@ -168,8 +157,6 @@ jobs:
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
-          token: ${{ secrets.PYDE_REPO_TOKEN }}
-        continue-on-error: true
       - name: Install toolchain
         run: rustup show
       - name: Cache cargo
