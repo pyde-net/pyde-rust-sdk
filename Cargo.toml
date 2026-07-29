@@ -17,12 +17,11 @@ keywords = ["blockchain", "pyde", "post-quantum", "falcon", "rpc-client"]
 categories = ["cryptography", "api-bindings", "asynchronous"]
 
 [dependencies]
-# ── Crypto (sibling path-dep per pyde-net convention) ─────────────────
-# FALCON-512 signatures, Poseidon2 hashing, Blake3.
-# `path` resolves locally during dev; `version` is what cargo
-# publishes against once pyde-crypto ships to crates.io. Both forms
-# must coexist so `cargo publish` accepts the manifest.
-pyde-crypto = { path = "../pyde-crypto", version = "0.1.0-testnet.1" }
+# ── Crypto ────────────────────────────────────────────────────────────
+# FALCON-512 signatures and Poseidon2 hashing, pulled from crates.io so
+# the SDK builds standalone from a clone. Prerelease, so pin the exact
+# version (cargo does not auto-bump across prereleases).
+pyde-crypto = "=0.1.0-testnet.1"
 
 # ── Async runtime + transport ────────────────────────────────────────
 tokio = { version = "1", features = ["time", "sync", "macros", "rt-multi-thread"] }
