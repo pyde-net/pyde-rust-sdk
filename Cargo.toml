@@ -40,7 +40,7 @@ blake3 = "1"          # event-signature topic hashing per Pyde dual-hash strateg
 
 # ── Encrypted keystore (T8) ──────────────────────────────────────────
 argon2 = "0.5"        # password-based KDF for at-rest secret-key storage
-aes-gcm = "0.10"      # AEAD wrapping the encrypted key material
+aes-gcm = "0.11"      # AEAD wrapping the encrypted key material
 rand = "0.8"
 zeroize = { version = "1", features = ["alloc"] }
 subtle = "2"          # constant-time byte-slice compare for FALCON pubkey eq
