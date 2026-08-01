@@ -27,7 +27,7 @@ pyde-crypto = "=0.1.0-testnet.1"
 tokio = { version = "1", features = ["time", "sync", "macros", "rt-multi-thread"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 url = "2"             # validate RPC endpoints up front rather than on first send
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.30", features = ["native-tls"] }
 futures-util = "0.3"
 async-trait = "0.1"
 
