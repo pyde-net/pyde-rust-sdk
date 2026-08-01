@@ -46,7 +46,7 @@ zeroize = { version = "1", features = ["alloc"] }
 subtle = "2"          # constant-time byte-slice compare for FALCON pubkey eq
 
 # ── WASM ABI parsing (T10) ───────────────────────────────────────────
-wasmparser = "0.220"  # walks deployed contract bytecode to find pyde.abi custom section
+wasmparser = "0.244"  # walks deployed contract bytecode to find pyde.abi custom section
 
 # ── Big-integer support for u256/i256 contract calldata (T10) ────────
 ruint = { version = "1", features = ["serde"] }
