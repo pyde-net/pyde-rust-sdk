@@ -55,10 +55,10 @@ jobs:
 
   # ── msrv ─────────────────────────────────────────────────────
   # Build against the declared MSRV (rust-version in Cargo.toml).
-  # Catches accidental use of stdlib APIs newer than 1.75. Same
+  # Catches accidental use of stdlib APIs newer than 1.87. Same
   # sibling-checkout pattern as clippy/test.
   msrv:
-    name: msrv (1.75)
+    name: msrv (1.87)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,11 +69,11 @@ jobs:
         with:
           repository: pyde-net/pyde-crypto
           path: pyde-crypto
-      - name: Install Rust 1.75
-        run: rustup toolchain install 1.75 --profile minimal
-      - name: cargo +1.75 build --workspace
+      - name: Install Rust 1.87
+        run: rustup toolchain install 1.87 --profile minimal
+      - name: cargo +1.87 build --workspace
         working-directory: pyde-rust-sdk
-        run: cargo +1.75 build --workspace
+        run: cargo +1.87 build --workspace
 
   # ── test ─────────────────────────────────────────────────────
   test:

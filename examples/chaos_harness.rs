@@ -548,7 +548,7 @@ async fn bootstrap_accounts(shared: &Arc<Shared>, fund_quanta: u128) -> anyhow::
             }
             // Pace under the per-sender rate limit (10/s, burst 20).
             tokio::time::sleep(Duration::from_millis(110)).await;
-            if funded % 100 == 0 && funded > 0 {
+            if funded.is_multiple_of(100) && funded > 0 {
                 eprintln!("chaos: funded {funded}/{}", shared.wallets.len());
             }
         }
