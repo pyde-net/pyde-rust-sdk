@@ -25,7 +25,9 @@
 #[must_use]
 pub fn is_hex_string(value: &str) -> bool {
     let hex_str = value.trim_start_matches("0x");
-    !hex_str.is_empty() && hex_str.len() % 2 == 0 && hex_str.chars().all(|c| c.is_ascii_hexdigit())
+    !hex_str.is_empty()
+        && hex_str.len().is_multiple_of(2)
+        && hex_str.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Encode a byte slice as a `0x`-prefixed lower-case hex string.

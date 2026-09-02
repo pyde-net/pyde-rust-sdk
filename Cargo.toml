@@ -4,10 +4,16 @@ version = "0.3.2"
 license = "Apache-2.0"
 edition = "2021"
 authors = ["zarah <zarah@pyde.network>"]
-# Minimum Supported Rust Version — async fn in traits was stabilised
-# in 1.75. The Provider trait depends on it; bumping the MSRV is a
-# minor-version SDK change. CI verifies builds against this version.
-rust-version = "1.75"
+# Minimum Supported Rust Version. The floor comes from dependencies,
+# not from this crate's own code: p3-util (via pyde-crypto) calls
+# `is_multiple_of` in a const context, which is not const-stable before
+# 1.87. The 1.75 declared here previously was never buildable — the
+# msrv job died parsing the v4 lockfile before it ever reached a
+# compile error, so nothing caught the drift. Established by building
+# on 1.86 (fails) and 1.87 (passes), not inferred from manifests: the
+# crate that sets the floor declares no rust-version of its own.
+# Bumping this is a minor-version SDK change.
+rust-version = "1.87"
 description = "Rust SDK for the Pyde blockchain — account generation, signing, RPC client, contract interaction"
 repository = "https://github.com/pyde-net/pyde-rust-sdk"
 homepage = "https://pyde.network"
