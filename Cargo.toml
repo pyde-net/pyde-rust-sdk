@@ -49,7 +49,6 @@ subtle = "2"          # constant-time byte-slice compare for FALCON pubkey eq
 wasmparser = "0.220"  # walks deployed contract bytecode to find pyde.abi custom section
 
 # ── Big-integer support for u256/i256 contract calldata (T10) ────────
-ruint = { version = "1", features = ["serde"] }
 
 # ── Error handling ───────────────────────────────────────────────────
 thiserror = "2"
