@@ -1,3 +1,27 @@
+# Alerts on, scheduled bump PRs off.
+#
+# These were the only two repos in the org producing Dependabot
+# version-update PRs — 10 of them open at once — because they were the
+# only two with a dependabot.yml declaring updates. Everywhere else has
+# no config and therefore no bump PRs at all.
+#
+# The PRs are not merely noise, they are unmergeable: remote CI is down
+# on billing, so every one arrives ungated. Merging ungated is actively
+# dangerous — the jsonwebtoken 9 to 10 bump in the explorer PANICS at
+# first verify unless a crypto provider feature is selected, which only
+# a local test run caught. A PR nothing can check is a liability.
+#
+# `open-pull-requests-limit: 0` disables version updates per ecosystem.
+# Two things deliberately survive it:
+#
+#   * Dependabot ALERTS — a repo-level setting, untouched by this file.
+#   * Dependabot SECURITY update PRs — the docs are explicit that these
+#     "are not subject to this limit and do not count toward it".
+#
+# So we still hear about every vulnerability and still get a PR when one
+# is actually fixable. We stop being paged about routine semver drift
+# nothing can verify. Raise the limits again once CI is paying.
+
 # Dependabot configuration — automated dependency update PRs.
 #
 # Two ecosystems tracked:
@@ -18,7 +42,7 @@ updates:
       interval: monthly
       time: "08:00"
       timezone: "Africa/Lagos"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - rust
@@ -38,7 +62,7 @@ updates:
       interval: monthly
       time: "08:00"
       timezone: "Africa/Lagos"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - ci
